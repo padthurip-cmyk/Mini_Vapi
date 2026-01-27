@@ -3,194 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mini Voice Bridge - Pro</title>
+    <title>Vapi AI Assistant - System Ready</title>
+    
+    <script src="https://cdn.jsdelivr.net/gh/VapiAI/html-sdk@latest/dist/vapi.js"></script>
+
     <style>
-        :root { --bg: #0a0a0f; --bg2: #12121a; --bg3: #1a1a25; --accent: #00d4aa; --text: #fff; --text2: #8b8b9e; --border: #2a2a3a; --danger: #ff6b6b; --warning: #ffd93d; }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
-        .full { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-        .logo { font-size: 20px; font-weight: 700; }
-        .logo span { color: var(--accent); }
-        .btn { background: var(--bg2); border: 1px solid var(--border); padding: 10px 16px; color: var(--text); border-radius: 8px; cursor: pointer; font-size: 14px; transition: 0.3s; }
-        .btn:hover { border-color: var(--accent); }
-        .btn.primary { background: var(--accent); color: #000; border: none; font-weight: 600; }
-        .status-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; text-align: center; }
-        .status-icon { font-size: 40px; margin-bottom: 10px; }
-        .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 15px; }
-        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
-        .row:last-child { border: none; }
-        .ok { color: var(--accent); } .err { color: var(--danger); } .warn { color: var(--warning); }
-        .input-group { margin-bottom: 12px; }
-        .input-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
-        .input-group input { width: 100%; background: var(--bg3); border: 1px solid var(--border); padding: 10px; color: #fff; border-radius: 6px; }
-        .log { background: #000; color: #0f0; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 11px; height: 120px; overflow-y: auto; margin-top: 15px; }
+        :root { --primary: #6366f1; --danger: #ef4444; --success: #22c55e; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { background: #1e293b; padding: 2rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 400px; text-align: center; border: 1px solid #334155; }
+        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; margin-bottom: 1rem; background: #334155; }
+        .logs { background: #000; color: #00ff00; font-family: monospace; font-size: 0.75rem; padding: 10px; border-radius: 8px; text-align: left; height: 100px; overflow-y: auto; margin-top: 1rem; border: 1px solid #334155; }
+        button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        #start-btn { background: var(--primary); color: white; }
+        #stop-btn { background: var(--danger); color: white; display: none; }
+        #mic-btn { background: transparent; border: 1px solid #475569; color: #94a3b8; font-size: 0.8rem; }
+        .active { color: var(--success); }
     </style>
 </head>
 <body>
-    <div class="full">
-        <div class="header">
-            <div class="logo">🎙️ Hey <span>Mini</span></div>
-            <button class="btn primary" id="mainBtn" onclick="toggleMain()">👂 Start Listening</button>
-        </div>
 
-        <div class="status-box" id="statusBox">
-            <div class="status-icon" id="statusIcon">🎤</div>
-            <h2 id="statusTitle">System Ready</h2>
-            <p id="statusSub" style="color: var(--text2)">Configure keys to start</p>
-        </div>
+<div class="container">
+    <div id="connection-status" class="status-badge">SDK Connection: Checking...</div>
+    <h2>🎙️ Vapi Assistant</h2>
+    
+    <button id="mic-btn">🎤 Force Mic Access</button>
+    <button id="start-btn">Start Listening</button>
+    <button id="stop-btn">Stop Assistant</button>
 
-        <div class="card">
-            <div class="row"><span>SDK Connection</span><span id="statSDK" class="warn">Disconnected</span></div>
-            <div class="row"><span>Mic Permission</span><span id="statMic" class="warn">Checking...</span></div>
-            <div class="row"><span>Wake Word</span><span id="statWake" class="warn">Inactive</span></div>
-        </div>
-
-        <div class="card">
-            <div class="input-group">
-                <label>Vapi Public Key (pk_...)</label>
-                <input type="text" id="vKey" placeholder="pk_xxxxxxxxxxxx">
-            </div>
-            <div class="input-group">
-                <label>Assistant ID</label>
-                <input type="text" id="vAsst" placeholder="uuid-uuid-uuid">
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button class="btn" onclick="saveSettings()">💾 Save & Connect</button>
-                <button class="btn" onclick="forceMic()">🎤 Force Mic Access</button>
-            </div>
-        </div>
-
-        <div class="log" id="sysLog"></div>
+    <div class="logs" id="console-logs">
+        12:39:09 PM - System Loaded...
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@1.0.1/dist/vapi.browser.js"></script>
 
-    <script>
-        const store = { vapi: null, rec: null, active: false, calling: false };
-        const logEl = document.getElementById('sysLog');
 
-        function log(msg, color = '') {
-            const div = document.createElement('div');
-            div.style.color = color;
-            div.textContent = `${new Date().toLocaleTimeString()} - ${msg}`;
-            logEl.appendChild(div);
-            logEl.scrollTop = logEl.scrollHeight;
-        }
+<script>
+    // --- CONFIGURATION ---
+    const VAPI_PUBLIC_KEY = 'your-public-key-here'; // Replace with pk_...
+    const ASSISTANT_ID = 'your-assistant-id-here';   // Replace with UUID
+    
+    let vapi = null;
+    const logEl = document.getElementById('console-logs');
+    const statusEl = document.getElementById('connection-status');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
 
-        async function forceMic() {
-            try {
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-                log("Microphone access granted manually!", "#00d4aa");
-                document.getElementById('statMic').textContent = "Allowed";
-                document.getElementById('statMic').className = "ok";
-            } catch (e) {
-                log("Mic Access Failed: " + e.message, "#ff6b6b");
+    function addLog(msg) {
+        const time = new Date().toLocaleTimeString();
+        logEl.innerHTML += `<div>${time} - ${msg}</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Initialize Function
+    function initVapi() {
+        try {
+            if (typeof Vapi === 'undefined') {
+                throw new Error("Vapi SDK not loaded yet.");
             }
+            vapi = new Vapi(VAPI_PUBLIC_KEY);
+            statusEl.innerText = "SDK Connection: Ready";
+            statusEl.classList.add('active');
+            addLog("SDK Initialized successfully.");
+            
+            // Event Listeners
+            vapi.on('call-start', () => {
+                addLog("Call started successfully.");
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+            });
+
+            vapi.on('call-end', () => {
+                addLog("Call ended.");
+                startBtn.style.display = 'block';
+                stopBtn.style.display = 'none';
+            });
+
+            vapi.on('error', (e) => {
+                addLog(`Error: ${e.message || 'Unknown error'}`);
+                console.error(e);
+            });
+
+        } catch (err) {
+            addLog(`SDK Init Failed: ${err.message}`);
         }
+    }
 
-        function saveSettings() {
-            const key = document.getElementById('vKey').value.trim();
-            const asst = document.getElementById('vAsst').value.trim();
-            localStorage.setItem('vKey', key);
-            localStorage.setItem('vAsst', asst);
-            log("Settings saved. Reconnecting...");
-            location.reload();
+    // Force Microphone Access
+    document.getElementById('mic-btn').addEventListener('click', async () => {
+        try {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            addLog("Mic Permission: Granted ✅");
+        } catch (err) {
+            addLog("Mic Permission: Denied ❌");
         }
+    });
 
-        function initVapi() {
-            const key = localStorage.getItem('vKey');
-            const asst = localStorage.getItem('vAsst');
-            if (!key || !asst) return log("Keys missing in settings", "orange");
-
-            document.getElementById('vKey').value = key;
-            document.getElementById('vAsst').value = asst;
-
-            try {
-                store.vapi = new Vapi(key);
-                document.getElementById('statSDK').textContent = "Connected";
-                document.getElementById('statSDK').className = "ok";
-
-                store.vapi.on('call-start', () => {
-                    store.calling = true;
-                    updateUI("🗣️", "Call Active", "Mini is listening...");
-                });
-
-                store.vapi.on('call-end', () => {
-                    store.calling = false;
-                    updateUI("🎤", "System Ready", "Waiting for wake word...");
-                    startWakeListener();
-                });
-
-                store.vapi.on('error', (e) => log("Vapi Error: " + (e.message || e), "#ff6b6b"));
-            } catch (e) {
-                log("SDK Init Failed: " + e.message, "#ff6b6b");
-            }
+    // Start Call
+    startBtn.addEventListener('click', () => {
+        if (!vapi) {
+            addLog("Error: Vapi not initialized.");
+            return;
         }
+        addLog("Connecting to Assistant...");
+        vapi.start(ASSISTANT_ID);
+    });
 
-        function startWakeListener() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) return log("Browser doesn't support Speech API", "#ff6b6b");
+    // Stop Call
+    stopBtn.addEventListener('click', () => {
+        vapi.stop();
+    });
 
-            store.rec = new SpeechRecognition();
-            store.rec.continuous = true;
-            store.rec.lang = 'en-US';
+    // Run init after a slight delay to ensure script tag is parsed
+    window.onload = initVapi;
+</script>
 
-            store.rec.onresult = (event) => {
-                if (store.calling) return;
-                const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
-                log("Heard: " + transcript);
-                if (transcript.includes("hey mini") || transcript.includes("mini")) {
-                    log("Wake word detected!", "#00d4aa");
-                    triggerCall();
-                }
-            };
-
-            store.rec.onerror = (e) => {
-                if (e.error === 'not-allowed') log("Mic blocked by browser", "#ff6b6b");
-                if (e.error !== 'aborted') setTimeout(startWakeListener, 1000);
-            };
-
-            store.rec.onend = () => { if (!store.calling) store.rec.start(); };
-            store.rec.start();
-            document.getElementById('statWake').textContent = "Active";
-            document.getElementById('statWake').className = "ok";
-        }
-
-        function triggerCall() {
-            const asst = localStorage.getItem('vAsst');
-            if (store.vapi && asst) {
-                store.rec.stop();
-                store.vapi.start(asst);
-                const beep = new AudioContext();
-                const o = beep.createOscillator();
-                const g = beep.createGain();
-                o.connect(g); g.connect(beep.destination);
-                o.start(); o.stop(beep.currentTime + 0.1);
-            }
-        }
-
-        function updateUI(icon, title, sub) {
-            document.getElementById('statusIcon').textContent = icon;
-            document.getElementById('statusTitle').textContent = title;
-            document.getElementById('statusSub').textContent = sub;
-        }
-
-        function toggleMain() {
-            if (!store.active) {
-                store.active = true;
-                document.getElementById('mainBtn').textContent = "⏸️ Stop All";
-                startWakeListener();
-                forceMic();
-            } else {
-                location.reload();
-            }
-        }
-
-        window.onload = () => {
-            initVapi();
-            log("System Loaded. Click 'Start' to begin.");
-        };
-    </script>
 </body>
 </html>
