@@ -3,54 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vapi Configurator</title>
-    <script src="https://cdn.jsdelivr.net/gh/VapiAI/html-sdk@latest/dist/vapi.js"></script>
+    <title>Vapi AI Fix</title>
     <style>
         :root { --bg: #0f172a; --card: #1e293b; --accent: #6366f1; }
         body { font-family: sans-serif; background: var(--bg); color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .container { background: var(--card); padding: 2rem; border-radius: 16px; width: 380px; border: 1px solid #334155; }
-        .input-group { text-align: left; margin-bottom: 15px; }
-        label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; }
-        input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .btn-connect { background: var(--accent); color: white; }
-        .btn-stop { background: #ef4444; color: white; display: none; }
-        #logs { font-family: monospace; font-size: 0.7rem; background: #000; color: #22c55e; padding: 10px; height: 100px; overflow-y: auto; margin-top: 1rem; border-radius: 4px; border: 1px solid #334155; }
-        .status-dot { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        .ready { background-color: #22c55e; }
+        .container { background: var(--card); padding: 2rem; border-radius: 16px; width: 380px; border: 1px solid #334155; text-align: center; }
+        input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; margin-bottom: 10px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; background: var(--accent); color: white; }
+        button:disabled { background: #334155; cursor: not-allowed; }
+        #logs { font-family: monospace; font-size: 0.7rem; background: #000; color: #22c55e; padding: 10px; height: 120px; overflow-y: auto; margin-top: 1rem; border-radius: 4px; text-align: left; }
+        .loader-text { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div style="margin-bottom: 20px;">
-        <span id="dot" class="status-dot"></span>
-        <span id="status-text" style="font-size: 0.8rem; color: #94a3b8;">SDK Disconnected</span>
-    </div>
-
-    <div class="input-group">
-        <label>Vapi Public Key</label>
-        <input type="text" id="pub-key" placeholder="pk_...">
-    </div>
+    <div id="loader-status" class="loader-text">⏳ Loading Vapi Engine...</div>
     
-    <div class="input-group">
-        <label>Assistant ID</label>
-        <input type="text" id="ast-id" placeholder="uuid-...">
-    </div>
+    <input type="text" id="pub-key" placeholder="Vapi Public Key (pk_...)">
+    <input type="text" id="ast-id" placeholder="Assistant ID (uuid...)">
 
-    <button class="btn-connect" id="start-btn">Save & Start Assistant</button>
-    <button class="btn-stop" id="stop-btn">Stop Conversation</button>
+    <button id="start-btn" disabled>Waiting for SDK...</button>
+    <button id="stop-btn" style="display:none; background: #ef4444; margin-top: 10px;">Stop Assistant</button>
 
-    <div id="logs">System Ready... Waiting for keys.</div>
+    <div id="logs">Initializing system...</div>
 </div>
 
-
-
 <script>
-    let vapi = null;
     const logEl = document.getElementById('logs');
-    const dot = document.getElementById('dot');
-    const statusText = document.getElementById('status-text');
+    const startBtn = document.getElementById('start-btn');
+    const loaderStatus = document.getElementById('loader-status');
+    let vapi = null;
 
     function addLog(msg) {
         const time = new Date().toLocaleTimeString();
@@ -58,61 +41,72 @@
         logEl.scrollTop = logEl.scrollHeight;
     }
 
-    function initAndStart() {
+    // --- STEP 1: PROPER SCRIPT LOADING ---
+    function loadVapiScript() {
+        return new Promise((resolve, reject) => {
+            if (window.Vapi) return resolve();
+            const script = document.createElement('script');
+            script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-sdk@latest/dist/vapi.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject();
+            document.head.appendChild(script);
+        });
+    }
+
+    // --- STEP 2: INITIALIZE ---
+    async function setup() {
+        try {
+            await loadVapiScript();
+            addLog("Vapi SDK loaded successfully.");
+            loaderStatus.innerText = "✅ SDK Ready";
+            loaderStatus.style.color = "#22c55e";
+            startBtn.innerText = "Save & Start Assistant";
+            startBtn.disabled = false;
+        } catch (e) {
+            addLog("❌ Failed to load SDK. Check internet/firewall.");
+            loaderStatus.innerText = "❌ Connection Failed";
+        }
+    }
+
+    async function startCall() {
         const pubKey = document.getElementById('pub-key').value.trim();
         const astId = document.getElementById('ast-id').value.trim();
 
         if (!pubKey || !astId) {
-            addLog("Error: Please enter both Keys.");
+            addLog("Error: Missing Keys!");
             return;
         }
 
         try {
-            // Check if SDK loaded from CDN
-            if (typeof Vapi === 'undefined') {
-                addLog("Error: Vapi SDK script not loaded yet.");
-                return;
-            }
-
-            // Initialize
             vapi = new Vapi(pubKey);
+            addLog("Connecting to assistant...");
             
+            vapi.start(astId);
+
             vapi.on('call-start', () => {
-                addLog("Connected! Start talking.");
-                dot.classList.add('ready');
-                statusText.innerText = "Active Call";
-                document.getElementById('start-btn').style.display = 'none';
+                addLog("🔴 Call active! Speak now.");
+                startBtn.style.display = 'none';
                 document.getElementById('stop-btn').style.display = 'block';
             });
 
             vapi.on('call-end', () => {
                 addLog("Call ended.");
-                dot.classList.remove('ready');
-                statusText.innerText = "SDK Ready";
-                document.getElementById('start-btn').style.display = 'block';
+                startBtn.style.display = 'block';
                 document.getElementById('stop-btn').style.display = 'none';
             });
 
-            vapi.on('error', (e) => addLog("Error: " + e.message));
-
-            // Start the call immediately after init
-            addLog("Attempting to connect...");
-            vapi.start(astId);
+            vapi.on('error', (e) => addLog("Vapi Error: " + e.message));
 
         } catch (err) {
-            addLog("Failed: " + err.message);
+            addLog("Setup Error: " + err.message);
         }
     }
 
-    document.getElementById('start-btn').addEventListener('click', initAndStart);
+    startBtn.addEventListener('click', startCall);
     document.getElementById('stop-btn').addEventListener('click', () => vapi?.stop());
 
-    // Check if SDK is available on load
-    window.onload = () => {
-        if (typeof Vapi !== 'undefined') {
-            statusText.innerText = "SDK Loaded (Waiting for Keys)";
-        }
-    };
+    // Run setup on load
+    setup();
 </script>
 
 </body>
