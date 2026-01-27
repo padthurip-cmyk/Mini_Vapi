@@ -3,118 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vapi AI Assistant - System Ready</title>
-    
+    <title>Vapi Configurator</title>
     <script src="https://cdn.jsdelivr.net/gh/VapiAI/html-sdk@latest/dist/vapi.js"></script>
-
     <style>
-        :root { --primary: #6366f1; --danger: #ef4444; --success: #22c55e; }
-        body { font-family: 'Inter', system-ui, sans-serif; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .container { background: #1e293b; padding: 2rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 400px; text-align: center; border: 1px solid #334155; }
-        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; margin-bottom: 1rem; background: #334155; }
-        .logs { background: #000; color: #00ff00; font-family: monospace; font-size: 0.75rem; padding: 10px; border-radius: 8px; text-align: left; height: 100px; overflow-y: auto; margin-top: 1rem; border: 1px solid #334155; }
-        button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        #start-btn { background: var(--primary); color: white; }
-        #stop-btn { background: var(--danger); color: white; display: none; }
-        #mic-btn { background: transparent; border: 1px solid #475569; color: #94a3b8; font-size: 0.8rem; }
-        .active { color: var(--success); }
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #6366f1; }
+        body { font-family: sans-serif; background: var(--bg); color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { background: var(--card); padding: 2rem; border-radius: 16px; width: 380px; border: 1px solid #334155; }
+        .input-group { text-align: left; margin-bottom: 15px; }
+        label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; }
+        input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn-connect { background: var(--accent); color: white; }
+        .btn-stop { background: #ef4444; color: white; display: none; }
+        #logs { font-family: monospace; font-size: 0.7rem; background: #000; color: #22c55e; padding: 10px; height: 100px; overflow-y: auto; margin-top: 1rem; border-radius: 4px; border: 1px solid #334155; }
+        .status-dot { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .ready { background-color: #22c55e; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div id="connection-status" class="status-badge">SDK Connection: Checking...</div>
-    <h2>🎙️ Vapi Assistant</h2>
-    
-    <button id="mic-btn">🎤 Force Mic Access</button>
-    <button id="start-btn">Start Listening</button>
-    <button id="stop-btn">Stop Assistant</button>
-
-    <div class="logs" id="console-logs">
-        12:39:09 PM - System Loaded...
+    <div style="margin-bottom: 20px;">
+        <span id="dot" class="status-dot"></span>
+        <span id="status-text" style="font-size: 0.8rem; color: #94a3b8;">SDK Disconnected</span>
     </div>
+
+    <div class="input-group">
+        <label>Vapi Public Key</label>
+        <input type="text" id="pub-key" placeholder="pk_...">
+    </div>
+    
+    <div class="input-group">
+        <label>Assistant ID</label>
+        <input type="text" id="ast-id" placeholder="uuid-...">
+    </div>
+
+    <button class="btn-connect" id="start-btn">Save & Start Assistant</button>
+    <button class="btn-stop" id="stop-btn">Stop Conversation</button>
+
+    <div id="logs">System Ready... Waiting for keys.</div>
 </div>
 
 
 
 <script>
-    // --- CONFIGURATION ---
-    const VAPI_PUBLIC_KEY = 'your-public-key-here'; // Replace with pk_...
-    const ASSISTANT_ID = 'your-assistant-id-here';   // Replace with UUID
-    
     let vapi = null;
-    const logEl = document.getElementById('console-logs');
-    const statusEl = document.getElementById('connection-status');
-    const startBtn = document.getElementById('start-btn');
-    const stopBtn = document.getElementById('stop-btn');
+    const logEl = document.getElementById('logs');
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('status-text');
 
     function addLog(msg) {
         const time = new Date().toLocaleTimeString();
-        logEl.innerHTML += `<div>${time} - ${msg}</div>`;
+        logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
         logEl.scrollTop = logEl.scrollHeight;
     }
 
-    // Initialize Function
-    function initVapi() {
+    function initAndStart() {
+        const pubKey = document.getElementById('pub-key').value.trim();
+        const astId = document.getElementById('ast-id').value.trim();
+
+        if (!pubKey || !astId) {
+            addLog("Error: Please enter both Keys.");
+            return;
+        }
+
         try {
+            // Check if SDK loaded from CDN
             if (typeof Vapi === 'undefined') {
-                throw new Error("Vapi SDK not loaded yet.");
+                addLog("Error: Vapi SDK script not loaded yet.");
+                return;
             }
-            vapi = new Vapi(VAPI_PUBLIC_KEY);
-            statusEl.innerText = "SDK Connection: Ready";
-            statusEl.classList.add('active');
-            addLog("SDK Initialized successfully.");
+
+            // Initialize
+            vapi = new Vapi(pubKey);
             
-            // Event Listeners
             vapi.on('call-start', () => {
-                addLog("Call started successfully.");
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'block';
+                addLog("Connected! Start talking.");
+                dot.classList.add('ready');
+                statusText.innerText = "Active Call";
+                document.getElementById('start-btn').style.display = 'none';
+                document.getElementById('stop-btn').style.display = 'block';
             });
 
             vapi.on('call-end', () => {
                 addLog("Call ended.");
-                startBtn.style.display = 'block';
-                stopBtn.style.display = 'none';
+                dot.classList.remove('ready');
+                statusText.innerText = "SDK Ready";
+                document.getElementById('start-btn').style.display = 'block';
+                document.getElementById('stop-btn').style.display = 'none';
             });
 
-            vapi.on('error', (e) => {
-                addLog(`Error: ${e.message || 'Unknown error'}`);
-                console.error(e);
-            });
+            vapi.on('error', (e) => addLog("Error: " + e.message));
+
+            // Start the call immediately after init
+            addLog("Attempting to connect...");
+            vapi.start(astId);
 
         } catch (err) {
-            addLog(`SDK Init Failed: ${err.message}`);
+            addLog("Failed: " + err.message);
         }
     }
 
-    // Force Microphone Access
-    document.getElementById('mic-btn').addEventListener('click', async () => {
-        try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-            addLog("Mic Permission: Granted ✅");
-        } catch (err) {
-            addLog("Mic Permission: Denied ❌");
+    document.getElementById('start-btn').addEventListener('click', initAndStart);
+    document.getElementById('stop-btn').addEventListener('click', () => vapi?.stop());
+
+    // Check if SDK is available on load
+    window.onload = () => {
+        if (typeof Vapi !== 'undefined') {
+            statusText.innerText = "SDK Loaded (Waiting for Keys)";
         }
-    });
-
-    // Start Call
-    startBtn.addEventListener('click', () => {
-        if (!vapi) {
-            addLog("Error: Vapi not initialized.");
-            return;
-        }
-        addLog("Connecting to Assistant...");
-        vapi.start(ASSISTANT_ID);
-    });
-
-    // Stop Call
-    stopBtn.addEventListener('click', () => {
-        vapi.stop();
-    });
-
-    // Run init after a slight delay to ensure script tag is parsed
-    window.onload = initVapi;
+    };
 </script>
 
 </body>
