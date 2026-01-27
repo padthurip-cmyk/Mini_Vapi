@@ -3,110 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vapi AI Fix</title>
+    <title>Vapi AI - Netlify Deploy</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --accent: #6366f1; }
-        body { font-family: sans-serif; background: var(--bg); color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .container { background: var(--card); padding: 2rem; border-radius: 16px; width: 380px; border: 1px solid #334155; text-align: center; }
-        input { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; margin-bottom: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; background: var(--accent); color: white; }
-        button:disabled { background: #334155; cursor: not-allowed; }
-        #logs { font-family: monospace; font-size: 0.7rem; background: #000; color: #22c55e; padding: 10px; height: 120px; overflow-y: auto; margin-top: 1rem; border-radius: 4px; text-align: left; }
-        .loader-text { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; }
+        :root { --bg: #0a0a0a; --card: #171717; --accent: #3b82f6; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: #ededed; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .container { background: var(--card); padding: 2.5rem; border-radius: 20px; width: 400px; border: 1px solid #333; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .status-pill { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; background: #262626; margin-bottom: 20px; border: 1px solid #404040; }
+        .dot { height: 6px; width: 6px; border-radius: 50%; background: #ef4444; margin-right: 8px; }
+        .dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        input { width: 100%; padding: 12px; background: #0a0a0a; border: 1px solid #404040; border-radius: 10px; color: #fff; margin-bottom: 12px; box-sizing: border-box; outline: none; transition: border 0.2s; }
+        input:focus { border-color: var(--accent); }
+        button { width: 100%; padding: 14px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; background: var(--accent); color: white; font-size: 1rem; }
+        button:disabled { background: #262626; color: #737373; cursor: not-allowed; }
+        #logs { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.7rem; background: #000; color: #a3a3a3; padding: 12px; height: 100px; overflow-y: auto; margin-top: 20px; border-radius: 8px; border: 1px solid #262626; line-height: 1.5; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div id="loader-status" class="loader-text">⏳ Loading Vapi Engine...</div>
+    <div class="status-pill">
+        <div id="status-dot" class="dot"></div>
+        <span id="status-text">Connecting to Vapi...</span>
+    </div>
     
     <input type="text" id="pub-key" placeholder="Vapi Public Key (pk_...)">
     <input type="text" id="ast-id" placeholder="Assistant ID (uuid...)">
 
-    <button id="start-btn" disabled>Waiting for SDK...</button>
-    <button id="stop-btn" style="display:none; background: #ef4444; margin-top: 10px;">Stop Assistant</button>
+    <button id="start-btn" disabled>Loading Engine...</button>
+    <button id="stop-btn" style="display:none; background: #dc2626; margin-top: 10px;">End Call</button>
 
-    <div id="logs">Initializing system...</div>
+    <div id="logs">System: Initializing edge connection...</div>
 </div>
 
-<script>
+
+
+<script type="module">
+    // Using an ES Module import is often more reliable on Netlify
+    import Vapi from 'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.es.js';
+
     const logEl = document.getElementById('logs');
     const startBtn = document.getElementById('start-btn');
-    const loaderStatus = document.getElementById('loader-status');
-    let vapi = null;
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    let vapiInstance = null;
 
     function addLog(msg) {
-        const time = new Date().toLocaleTimeString();
-        logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        logEl.innerHTML += `<div><span style="color: #525252">${time}</span> ${msg}</div>`;
         logEl.scrollTop = logEl.scrollHeight;
     }
 
-    // --- STEP 1: PROPER SCRIPT LOADING ---
-    function loadVapiScript() {
-        return new Promise((resolve, reject) => {
-            if (window.Vapi) return resolve();
-            const script = document.createElement('script');
-            script.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-sdk@latest/dist/vapi.js";
-            script.onload = () => resolve();
-            script.onerror = () => reject();
-            document.head.appendChild(script);
-        });
+    // Since we are using type="module", Vapi is imported directly
+    try {
+        addLog("Vapi Module loaded.");
+        statusDot.classList.add('online');
+        statusText.innerText = "Vapi Online";
+        startBtn.innerText = "Start Assistant";
+        startBtn.disabled = false;
+    } catch (e) {
+        addLog("Critical: Module Load Failed.");
     }
 
-    // --- STEP 2: INITIALIZE ---
-    async function setup() {
-        try {
-            await loadVapiScript();
-            addLog("Vapi SDK loaded successfully.");
-            loaderStatus.innerText = "✅ SDK Ready";
-            loaderStatus.style.color = "#22c55e";
-            startBtn.innerText = "Save & Start Assistant";
-            startBtn.disabled = false;
-        } catch (e) {
-            addLog("❌ Failed to load SDK. Check internet/firewall.");
-            loaderStatus.innerText = "❌ Connection Failed";
-        }
-    }
+    async function startAssistant() {
+        const key = document.getElementById('pub-key').value.trim();
+        const id = document.getElementById('ast-id').value.trim();
 
-    async function startCall() {
-        const pubKey = document.getElementById('pub-key').value.trim();
-        const astId = document.getElementById('ast-id').value.trim();
-
-        if (!pubKey || !astId) {
-            addLog("Error: Missing Keys!");
+        if(!key || !id) {
+            addLog("Error: Keys missing.");
             return;
         }
 
         try {
-            vapi = new Vapi(pubKey);
-            addLog("Connecting to assistant...");
-            
-            vapi.start(astId);
+            vapiInstance = new Vapi(key);
+            vapiInstance.start(id);
 
-            vapi.on('call-start', () => {
-                addLog("🔴 Call active! Speak now.");
+            vapiInstance.on('call-start', () => {
+                addLog("🔴 Assistant connected.");
                 startBtn.style.display = 'none';
                 document.getElementById('stop-btn').style.display = 'block';
             });
 
-            vapi.on('call-end', () => {
+            vapiInstance.on('call-end', () => {
                 addLog("Call ended.");
                 startBtn.style.display = 'block';
                 document.getElementById('stop-btn').style.display = 'none';
             });
 
-            vapi.on('error', (e) => addLog("Vapi Error: " + e.message));
-
+            vapiInstance.on('error', (e) => addLog("Error: " + e));
         } catch (err) {
-            addLog("Setup Error: " + err.message);
+            addLog("Connection failed: " + err.message);
         }
     }
 
-    startBtn.addEventListener('click', startCall);
-    document.getElementById('stop-btn').addEventListener('click', () => vapi?.stop());
-
-    // Run setup on load
-    setup();
+    startBtn.addEventListener('click', startAssistant);
+    document.getElementById('stop-btn').addEventListener('click', () => vapiInstance?.stop());
 </script>
 
 </body>
