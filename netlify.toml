@@ -1,0 +1,37 @@
+# Netlify Configuration for Mini Voice Bridge
+# This file configures security headers to allow:
+# - Microphone access
+# - Local script execution
+# - WebRTC connections (for Vapi)
+
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Allow microphone and media access
+    Permissions-Policy = "microphone=(*), camera=(*)"
+    
+    # Content Security Policy - Allow scripts and WebRTC
+    Content-Security-Policy = '''
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.vapi.ai https://*.daily.co;
+      connect-src 'self' https://*.vapi.ai wss://*.vapi.ai https://*.daily.co wss://*.daily.co https://api.vapi.ai;
+      media-src 'self' blob: https://*.daily.co;
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob:;
+      font-src 'self';
+      frame-src https://*.daily.co;
+    '''
+    
+    # Additional security headers
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Ensure JavaScript files are served with correct MIME type
+[[headers]]
+  for = "*.js"
+  [headers.values]
+    Content-Type = "application/javascript"
