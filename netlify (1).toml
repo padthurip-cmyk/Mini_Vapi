@@ -1,0 +1,17 @@
+# Netlify Configuration for Mini Voice Bridge
+
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Allow microphone access
+    Permissions-Policy = "microphone=(*), camera=(*)"
+    
+    # Relaxed CSP to allow Vapi SDK from CDN
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.vapi.ai https://*.daily.co blob:; connect-src 'self' https://*.vapi.ai wss://*.vapi.ai https://*.daily.co wss://*.daily.co https://api.vapi.ai blob:; media-src 'self' blob: https://*.daily.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src https://*.daily.co blob:; worker-src 'self' blob:;"
+    
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
