@@ -53,7 +53,6 @@
         .row-value.warn { color: var(--warning); }
         .row-value.err { color: var(--danger); }
         
-        /* LIVE TRANSCRIPT BOX */
         .live-transcript {
             background: var(--bg3);
             border: 2px solid var(--border);
@@ -63,32 +62,11 @@
             min-height: 80px;
             transition: border-color 0.3s;
         }
-        .live-transcript.hearing {
-            border-color: var(--accent);
-            box-shadow: 0 0 10px rgba(0, 212, 170, 0.2);
-        }
-        .live-transcript-label {
-            font-size: 11px;
-            color: var(--text2);
-            text-transform: uppercase;
-            margin-bottom: 8px;
-        }
-        .live-transcript-text {
-            font-size: 16px;
-            color: var(--text);
-            min-height: 24px;
-        }
-        .live-transcript-text.placeholder {
-            color: var(--text2);
-            font-style: italic;
-        }
-        .wake-detected {
-            background: var(--accent);
-            color: var(--bg);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
+        .live-transcript.hearing { border-color: var(--accent); box-shadow: 0 0 10px rgba(0, 212, 170, 0.2); }
+        .live-transcript-label { font-size: 11px; color: var(--text2); text-transform: uppercase; margin-bottom: 8px; }
+        .live-transcript-text { font-size: 16px; color: var(--text); min-height: 24px; }
+        .live-transcript-text.placeholder { color: var(--text2); font-style: italic; }
+        .wake-detected { background: var(--accent); color: var(--bg); padding: 2px 6px; border-radius: 4px; font-weight: bold; }
         
         .input-group { margin-bottom: 14px; }
         .input-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
@@ -144,9 +122,8 @@
             </div>
         </div>
 
-        <!-- LIVE TRANSCRIPT - Shows what you're saying in real-time -->
         <div class="live-transcript" id="liveTranscript">
-            <div class="live-transcript-label">🎤 Live Transcript (what I hear you saying)</div>
+            <div class="live-transcript-label">🎤 Live Transcript (what I hear)</div>
             <div class="live-transcript-text placeholder" id="liveText">Speak to see your words here...</div>
         </div>
 
@@ -175,6 +152,7 @@
             <div class="settings-btns">
                 <button class="btn primary" onclick="save()">💾 Save</button>
                 <button class="btn" onclick="testMic()">🎤 Test Mic</button>
+                <button class="btn" onclick="forceRestart()">🔄 Restart</button>
             </div>
             
             <div class="log" id="log"></div>
@@ -183,26 +161,28 @@
 
     <div class="toast" id="toast"></div>
 
-    <!-- Vapi SDK Loader -->
     <script>
-        (function(d, t) {
-            var g = document.createElement(t), s = d.getElementsByTagName(t)[0];
-            g.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
-            g.defer = true;
-            g.async = true;
-            s.parentNode.insertBefore(g, s);
-            g.onload = function() { window._vapiScriptLoaded = true; };
-            g.onerror = function() { window._vapiScriptError = true; };
-        })(document, "script");
-    </script>
-
-    <script>
+    // =====================================================
+    // CONFIGURATION
+    // =====================================================
     const CONFIG = { wake: 'hey mini', key: '', assist: '', debounce: 2000 };
+    
     const state = { 
-        listening: false, calling: false, rec: null, vapi: null, vapiOk: false, 
-        sessions: 0, lastWake: 0, restart: null, pollCount: 0, maxPolls: 40
+        listening: false, 
+        calling: false, 
+        rec: null, 
+        vapi: null, 
+        vapiOk: false, 
+        sessions: 0, 
+        lastWake: 0, 
+        restartTimer: null,
+        abortCount: 0,
+        maxAborts: 5
     };
 
+    // =====================================================
+    // LOGGING
+    // =====================================================
     function log(msg, type = '') {
         console.log(`[${type || 'info'}] ${msg}`);
         const logEl = document.getElementById('log');
@@ -212,10 +192,9 @@
         entry.textContent = `${new Date().toLocaleTimeString()} - ${msg}`;
         logEl.appendChild(entry);
         logEl.scrollTop = logEl.scrollHeight;
-        while (logEl.children.length > 50) logEl.removeChild(logEl.firstChild);
+        while (logEl.children.length > 40) logEl.removeChild(logEl.firstChild);
     }
 
-    // Update live transcript display
     function updateLiveTranscript(text, isWakeWord = false) {
         const container = document.getElementById('liveTranscript');
         const textEl = document.getElementById('liveText');
@@ -223,22 +202,12 @@
         if (text) {
             container.classList.add('hearing');
             textEl.classList.remove('placeholder');
-            
             if (isWakeWord) {
-                // Highlight the wake word
-                const highlighted = text.replace(
-                    new RegExp(`(${CONFIG.wake})`, 'gi'),
-                    '<span class="wake-detected">$1</span>'
-                );
-                textEl.innerHTML = highlighted;
+                textEl.innerHTML = text.replace(new RegExp(`(${CONFIG.wake})`, 'gi'), '<span class="wake-detected">$1</span>');
             } else {
                 textEl.textContent = text;
             }
-            
-            // Remove highlight after 2 seconds
-            setTimeout(() => {
-                container.classList.remove('hearing');
-            }, 2000);
+            setTimeout(() => container.classList.remove('hearing'), 2000);
         } else {
             textEl.textContent = 'Speak to see your words here...';
             textEl.classList.add('placeholder');
@@ -246,72 +215,80 @@
         }
     }
 
-    function getVapiSDK() {
-        if (window.vapiSDK && typeof window.vapiSDK.run === 'function') return window.vapiSDK;
-        if (typeof window.Vapi === 'function') return { type: 'class', Vapi: window.Vapi };
-        return null;
-    }
-
-    function pollForVapi() {
+    // =====================================================
+    // VAPI SDK - Direct Initialization (No HTML SDK)
+    // =====================================================
+    async function loadVapiSDK() {
+        setStatus('sVapi', 'Loading...', 'warn');
+        
         return new Promise((resolve) => {
-            const check = () => {
-                state.pollCount++;
-                if (window._vapiScriptError) {
-                    log('SDK failed to load', 'error');
-                    setStatus('sVapi', 'Failed', 'err');
-                    resolve(null);
-                    return;
-                }
-                const sdk = getVapiSDK();
-                if (sdk) {
-                    log(`✓ Vapi SDK loaded`, 'success');
-                    setStatus('sVapi', 'Loaded', 'ok');
-                    resolve(sdk);
-                    return;
-                }
-                if (state.pollCount >= state.maxPolls) {
-                    log(`SDK timeout`, 'error');
-                    setStatus('sVapi', 'Timeout', 'err');
-                    resolve(null);
-                    return;
-                }
-                setStatus('sVapi', `Loading ${state.pollCount}...`, 'warn');
-                setTimeout(check, 500);
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.2.3/dist/vapi.umd.js';
+            script.async = true;
+            
+            script.onload = () => {
+                // Give it a moment to register
+                setTimeout(() => {
+                    if (typeof Vapi !== 'undefined') {
+                        log('✓ Vapi SDK loaded', 'success');
+                        setStatus('sVapi', 'Loaded', 'ok');
+                        resolve(true);
+                    } else {
+                        log('Vapi not found after load', 'error');
+                        setStatus('sVapi', 'Not Found', 'err');
+                        resolve(false);
+                    }
+                }, 500);
             };
-            setTimeout(check, 500);
+            
+            script.onerror = () => {
+                log('Failed to load Vapi SDK', 'error');
+                setStatus('sVapi', 'Failed', 'err');
+                resolve(false);
+            };
+            
+            document.head.appendChild(script);
         });
     }
 
+    // =====================================================
+    // INITIALIZATION
+    // =====================================================
     document.addEventListener('DOMContentLoaded', async () => {
-        log('=== Mini Voice Bridge ===');
+        log('=== Mini Voice Bridge v3 ===');
         
         loadConfig();
         checkSpeech();
         
-        log('Loading Vapi SDK...');
-        const sdk = await pollForVapi();
+        // Load Vapi SDK
+        const vapiLoaded = await loadVapiSDK();
         
-        if (sdk && CONFIG.key) {
-            initVapi(sdk);
-        } else if (sdk) {
-            log('Add Vapi key in settings');
+        if (vapiLoaded && CONFIG.key) {
+            initVapi();
+        } else if (vapiLoaded) {
+            log('Add Vapi Public Key in settings');
             setStatus('sVapi', 'Need Key', 'warn');
         }
         
+        // Initialize speech recognition
         initRecognition();
         await checkMic();
         
+        // Start in compact mode
         document.body.classList.add('compact');
         updateUI('idle', 'Ready', `Say <span class="badge">${CONFIG.wake}</span>`);
         
+        // Auto-start listening after delay
         setTimeout(() => { 
-            if (state.rec) { 
-                start(); 
-                log('✓ Listening for wake word'); 
+            if (state.rec && !state.calling) { 
+                startListening();
             }
-        }, 1000);
+        }, 1500);
     });
 
+    // =====================================================
+    // CONFIG
+    // =====================================================
     function loadConfig() {
         try {
             const s = localStorage.getItem('miniConfig');
@@ -328,18 +305,26 @@
         CONFIG.assist = document.getElementById('inAssist').value.trim();
         try { localStorage.setItem('miniConfig', JSON.stringify(CONFIG)); } catch (e) {}
         
-        const sdk = getVapiSDK();
-        if (sdk && CONFIG.key && !state.vapiOk) initVapi(sdk);
+        if (typeof Vapi !== 'undefined' && CONFIG.key && !state.vapiOk) {
+            initVapi();
+        }
         
         toast('Saved!', 'success');
         log('Config saved');
-        if (state.listening) { stop(); setTimeout(start, 300); }
+        
+        if (state.listening) { 
+            stopListening();
+            setTimeout(startListening, 500);
+        }
     }
 
+    // =====================================================
+    // CHECKS
+    // =====================================================
     function checkSpeech() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         setStatus('sSpeech', SR ? 'Supported' : 'Not Supported', SR ? 'ok' : 'err');
-        log(`Speech Recognition: ${SR ? 'Supported' : 'NOT SUPPORTED'}`);
+        log(`Speech: ${SR ? 'OK' : 'NOT SUPPORTED'}`);
         return !!SR;
     }
 
@@ -349,270 +334,271 @@
                 const r = await navigator.permissions.query({ name: 'microphone' });
                 setStatus('sMic', r.state === 'granted' ? 'Allowed' : r.state === 'denied' ? 'Blocked' : 'Prompt', 
                          r.state === 'granted' ? 'ok' : r.state === 'denied' ? 'err' : 'warn');
-                log(`Microphone: ${r.state}`);
             }
         } catch (e) { setStatus('sMic', 'Unknown', 'warn'); }
     }
 
+    // =====================================================
+    // SPEECH RECOGNITION
+    // =====================================================
     function initRecognition() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) {
-            log('Speech Recognition not available!', 'error');
+            log('Speech Recognition not supported', 'error');
             return;
         }
         
         state.rec = new SR();
         state.rec.continuous = true;
-        state.rec.interimResults = true;  // Get partial results
+        state.rec.interimResults = true;
         state.rec.lang = 'en-US';
-        state.rec.maxAlternatives = 1;
 
         state.rec.onstart = () => {
             state.listening = true;
+            state.abortCount = 0;  // Reset abort counter
             updateUI('listening');
             updateBtns(true);
             setStatus('sMic', 'Active', 'ok');
-            log('🎤 Speech recognition started');
+            log('🎤 Listening started');
         };
 
         state.rec.onresult = (event) => {
             if (state.calling) return;
             
-            // Get the latest result
             let transcript = '';
-            let isFinal = false;
-            
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 transcript += event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    isFinal = true;
-                }
             }
             
-            const lowerTranscript = transcript.toLowerCase().trim();
+            const lower = transcript.toLowerCase().trim();
+            const hasWake = lower.includes(CONFIG.wake.toLowerCase());
             
-            // Always show what we're hearing
-            console.log(`[Speech] Heard: "${lowerTranscript}" (final: ${isFinal})`);
+            updateLiveTranscript(transcript, hasWake);
             
-            // Update live transcript display
-            const containsWake = lowerTranscript.includes(CONFIG.wake.toLowerCase());
-            updateLiveTranscript(transcript, containsWake);
-            
-            // Check for wake word
-            if (containsWake) {
+            if (hasWake) {
                 const now = Date.now();
                 if (now - state.lastWake > CONFIG.debounce) {
                     state.lastWake = now;
-                    log(`🎯 WAKE WORD DETECTED: "${lowerTranscript}"`, 'success');
-                    onWake();
-                    return;
-                } else {
-                    log(`Wake word heard but debounced`, 'warn');
+                    log(`🎯 WAKE WORD: "${lower}"`, 'success');
+                    onWakeDetected();
                 }
             }
         };
 
         state.rec.onerror = (e) => {
-            console.error('[Speech Error]', e.error);
-            log(`Speech error: ${e.error}`, 'error');
-            
             if (e.error === 'not-allowed') {
                 setStatus('sMic', 'Blocked', 'err');
                 state.listening = false;
                 updateBtns(false);
-                toast('Microphone blocked! Check permissions.', 'error');
+                log('Microphone blocked!', 'error');
+                toast('Allow microphone access', 'error');
+            } else if (e.error === 'aborted') {
+                state.abortCount++;
+                if (state.abortCount < state.maxAborts) {
+                    // Normal abort, schedule restart with longer delay
+                    scheduleRestart(1000);
+                } else {
+                    // Too many aborts, wait longer
+                    log('Multiple aborts - waiting 5s', 'warn');
+                    scheduleRestart(5000);
+                    state.abortCount = 0;
+                }
             } else if (e.error === 'no-speech') {
-                // This is normal - no speech detected, just restart
-                log('No speech detected, continuing...');
-                scheduleRestart();
-            } else if (e.error !== 'aborted') {
-                scheduleRestart();
+                // Normal - just restart
+                scheduleRestart(500);
+            } else {
+                log(`Speech error: ${e.error}`, 'error');
+                scheduleRestart(1000);
             }
         };
 
         state.rec.onend = () => {
-            log('Speech recognition ended');
             if (state.listening && !state.calling) {
-                scheduleRestart();
+                scheduleRestart(500);
             }
         };
         
-        state.rec.onsoundstart = () => {
-            log('🔊 Sound detected');
-        };
-        
-        state.rec.onspeechstart = () => {
-            log('🗣️ Speech started');
-        };
-        
-        log('Speech recognition initialized');
+        log('Speech recognition ready');
     }
 
-    function scheduleRestart() {
-        if (state.restart) clearTimeout(state.restart);
-        state.restart = setTimeout(() => {
+    function scheduleRestart(delay = 500) {
+        if (state.restartTimer) clearTimeout(state.restartTimer);
+        
+        state.restartTimer = setTimeout(() => {
             if (state.listening && !state.calling && state.rec) {
                 try { 
-                    state.rec.start(); 
-                    log('Restarted listening');
+                    state.rec.start();
                 } catch (e) {
                     if (!e.message.includes('already started')) {
-                        log(`Restart failed: ${e.message}`, 'error');
+                        log(`Restart error: ${e.message}`, 'error');
                     }
                 }
             }
-        }, 300);
+        }, delay);
     }
 
-    function start() {
-        if (!state.rec || state.calling) return;
-        try { 
-            state.listening = true; 
+    function startListening() {
+        if (!state.rec) {
+            log('Speech recognition not available', 'error');
+            return;
+        }
+        if (state.calling) {
+            log('Cannot listen during call');
+            return;
+        }
+        
+        state.listening = true;
+        state.abortCount = 0;
+        
+        try {
             state.rec.start();
             log('Started listening');
-        } catch (e) { 
+        } catch (e) {
             if (e.message.includes('already started')) {
-                updateUI('listening'); 
-                updateBtns(true); 
+                updateUI('listening');
+                updateBtns(true);
             } else {
-                log(`Start failed: ${e.message}`, 'error');
+                log(`Start error: ${e.message}`, 'error');
             }
         }
     }
 
-    function stop() {
+    function stopListening() {
         state.listening = false;
-        if (state.restart) clearTimeout(state.restart);
-        try { if (state.rec) state.rec.stop(); } catch (e) {}
+        if (state.restartTimer) clearTimeout(state.restartTimer);
+        
+        try {
+            if (state.rec) state.rec.stop();
+        } catch (e) {}
+        
         if (!state.calling) updateUI('idle');
         updateBtns(false);
         updateLiveTranscript('');
-        log('Stopped listening');
     }
 
-    function toggle() { state.listening ? stop() : start(); }
+    function toggle() {
+        state.listening ? stopListening() : startListening();
+    }
 
-    function initVapi(sdk) {
-        if (!CONFIG.key) return;
+    function forceRestart() {
+        log('Force restarting...');
+        stopListening();
+        state.abortCount = 0;
+        setTimeout(startListening, 1000);
+        toast('Restarting...', 'success');
+    }
+
+    // =====================================================
+    // VAPI
+    // =====================================================
+    function initVapi() {
+        if (typeof Vapi === 'undefined' || !CONFIG.key) return;
+        
         try {
-            if (sdk.run && typeof sdk.run === 'function') {
-                log('Using Vapi HTML SDK');
-                state.vapiOk = true;
-                state.vapiSdkType = 'html';
-                setStatus('sVapi', 'Ready', 'ok');
-                log('✓ Vapi ready', 'success');
-                return;
-            }
-            if (sdk.type === 'class' && sdk.Vapi) {
-                state.vapi = new sdk.Vapi(CONFIG.key);
-                setupVapiEvents();
-                state.vapiOk = true;
-                state.vapiSdkType = 'class';
-                setStatus('sVapi', 'Ready', 'ok');
-                log('✓ Vapi ready (class)', 'success');
-            }
+            state.vapi = new Vapi(CONFIG.key);
+            state.vapiOk = true;
+            setStatus('sVapi', 'Ready', 'ok');
+            log('✓ Vapi initialized', 'success');
+
+            state.vapi.on('call-start', () => {
+                state.calling = true;
+                state.sessions++;
+                document.getElementById('sSessions').textContent = state.sessions;
+                updateUI('active', 'Call Active', 'Speak to assistant');
+                log('📞 Call started');
+            });
+
+            state.vapi.on('call-end', () => {
+                log('Call ended');
+                state.calling = false;
+                state.vapi = null;  // Clear the instance
+                updateUI('idle');
+                
+                // Re-initialize Vapi for next call
+                setTimeout(() => {
+                    initVapi();
+                    // Wait before restarting speech recognition
+                    setTimeout(startListening, 2000);
+                }, 1000);
+            });
+
+            state.vapi.on('speech-start', () => {
+                log('🗣️ User speaking');
+            });
+
+            state.vapi.on('speech-end', () => {
+                log('User stopped');
+            });
+
+            state.vapi.on('message', (msg) => {
+                if (msg.type === 'transcript' && msg.transcript) {
+                    log(`[${msg.role}]: ${msg.transcript}`);
+                }
+            });
+
+            state.vapi.on('error', (err) => {
+                log(`Vapi error: ${err?.message || err}`, 'error');
+                state.calling = false;
+                updateUI('idle');
+                setTimeout(() => {
+                    initVapi();
+                    startListening();
+                }, 3000);
+            });
+            
         } catch (e) {
-            log(`Vapi init error: ${e.message}`, 'error');
+            log(`Vapi init failed: ${e.message}`, 'error');
             state.vapiOk = false;
             setStatus('sVapi', 'Error', 'err');
         }
     }
 
-    function setupVapiEvents() {
-        if (!state.vapi) return;
-        state.vapi.on('call-start', () => {
-            state.calling = true;
-            state.sessions++;
-            document.getElementById('sSessions').textContent = state.sessions;
-            updateUI('active', 'Call Active', 'Speak now');
-            log('Call started');
-        });
-        state.vapi.on('call-end', () => {
-            state.calling = false;
-            updateUI('idle');
-            log('Call ended');
-            setTimeout(start, 1000);
-        });
-        state.vapi.on('error', (err) => {
-            state.calling = false;
-            log(`Error: ${err?.message || err}`, 'error');
-            setTimeout(start, 2000);
-        });
-    }
-
-    function onWake() {
+    function onWakeDetected() {
         playSound();
-        stop();
-        updateUI('active', '🎯 Wake Detected!', 'Connecting to assistant...');
+        stopListening();
+        updateUI('active', '🎯 Wake Detected!', 'Connecting...');
 
-        if (!state.vapiOk) {
+        if (!state.vapiOk || !state.vapi) {
             toast('Configure Vapi first', 'error');
             log('Vapi not ready', 'error');
-            setTimeout(start, 3000);
+            setTimeout(startListening, 3000);
             return;
         }
+        
         if (!CONFIG.key) {
             toast('Add Vapi Public Key', 'error');
-            setTimeout(start, 3000);
+            setTimeout(startListening, 3000);
             return;
         }
+        
         if (!CONFIG.assist) {
             toast('Add Assistant ID', 'error');
-            setTimeout(start, 3000);
+            setTimeout(startListening, 3000);
             return;
         }
 
         try {
             log('🚀 Starting Vapi call...');
-            
-            if (state.vapiSdkType === 'html' && window.vapiSDK) {
-                state.vapi = window.vapiSDK.run({
-                    apiKey: CONFIG.key,
-                    assistant: CONFIG.assist,
-                    config: { hideButton: true, position: 'bottom-right' }
-                });
-                
-                if (state.vapi) {
-                    state.calling = true;
-                    state.sessions++;
-                    document.getElementById('sSessions').textContent = state.sessions;
-                    
-                    state.vapi.on('call-start', () => {
-                        log('📞 Call connected');
-                        updateUI('active', 'Call Active', 'Speak now');
-                    });
-                    state.vapi.on('call-end', () => {
-                        state.calling = false;
-                        log('Call ended');
-                        updateUI('idle');
-                        setTimeout(start, 1000);
-                    });
-                    state.vapi.on('error', (e) => {
-                        state.calling = false;
-                        log(`Call error: ${e}`, 'error');
-                        updateUI('idle');
-                        setTimeout(start, 2000);
-                    });
-                    
-                    state.vapi.start();
-                }
-            } else if (state.vapi && state.vapiSdkType === 'class') {
-                state.vapi.start(CONFIG.assist);
-            }
+            state.vapi.start(CONFIG.assist);
         } catch (e) {
             log(`Call failed: ${e.message}`, 'error');
             toast('Call failed', 'error');
-            setTimeout(start, 2000);
+            setTimeout(startListening, 3000);
         }
     }
 
     function endCall() {
-        if (state.vapi) { try { state.vapi.stop(); } catch (e) {} }
+        if (state.vapi && state.calling) {
+            try { state.vapi.stop(); } catch (e) {}
+        }
         state.calling = false;
         updateUI('idle');
-        log('Call ended');
+        log('Call ended by user');
     }
 
+    // =====================================================
+    // UI
+    // =====================================================
     function updateUI(type, title, sub) {
         const status = document.getElementById('status');
         const icon = document.getElementById('icon');
@@ -627,13 +613,17 @@
         dot.className = 'dot';
 
         if (type === 'listening') {
-            status.classList.add('listening'); widget.classList.add('listening'); dot.classList.add('listening');
+            status.classList.add('listening'); 
+            widget.classList.add('listening'); 
+            dot.classList.add('listening');
             icon.textContent = '👂';
             titleEl.textContent = title || 'Listening';
             subEl.innerHTML = sub || `Say <span class="badge">${CONFIG.wake}</span>`;
-            wText.textContent = `Listening: "${CONFIG.wake}"`;
+            wText.textContent = `Say "${CONFIG.wake}"`;
         } else if (type === 'active') {
-            status.classList.add('active'); widget.classList.add('active'); dot.classList.add('active');
+            status.classList.add('active'); 
+            widget.classList.add('active'); 
+            dot.classList.add('active');
             icon.textContent = '🗣️';
             titleEl.textContent = title || 'Active';
             subEl.textContent = sub || 'In progress';
@@ -670,8 +660,8 @@
     }
 
     function testMic() { 
-        if (!state.listening) start(); 
-        toast(`Speak now - watch the Live Transcript box`, 'success'); 
+        if (!state.listening) startListening();
+        toast(`Say "${CONFIG.wake}" - watch Live Transcript`, 'success'); 
     }
 
     function playSound() {
@@ -689,7 +679,9 @@
     }
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && state.listening && !state.calling) scheduleRestart();
+        if (document.visibilityState === 'visible' && state.listening && !state.calling) {
+            scheduleRestart(1000);
+        }
     });
     </script>
 </body>
