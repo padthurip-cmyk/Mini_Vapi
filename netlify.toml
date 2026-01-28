@@ -1,4 +1,1 @@
-[[headers]]
-  for = "/*"
-  [headers.values]
-    Content-Security-Policy = "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; connect-src 'self' https://api.vapi.ai wss://*.vapi.ai;"
+
