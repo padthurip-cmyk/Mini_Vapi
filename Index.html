@@ -64,8 +64,8 @@
         .toast.error { border-color: var(--danger); }
         .toast.success { border-color: var(--accent); }
         
-        .log { background: var(--bg3); border-radius: 8px; padding: 12px; margin-top: 16px; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 11px; color: var(--text2); }
-        .log-entry { padding: 3px 0; border-bottom: 1px solid var(--border); }
+        .log { background: var(--bg3); border-radius: 8px; padding: 12px; margin-top: 16px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; color: var(--text2); }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid var(--border); word-break: break-all; }
         .log-entry:last-child { border: none; }
         .log-entry.error { color: var(--danger); }
         .log-entry.success { color: var(--accent); }
@@ -79,7 +79,6 @@
     </style>
 </head>
 <body>
-    <!-- Compact Widget -->
     <div class="widget" id="widget" onclick="toggleControls(event)">
         <div class="dot" id="wDot"></div>
         <div class="widget-text" id="wText">Starting...</div>
@@ -91,7 +90,6 @@
         <button onclick="endCall()">⏹️ End Call</button>
     </div>
 
-    <!-- Full Interface -->
     <div class="full">
         <div class="header">
             <div class="logo">🎙️ Hey <span>Mini</span></div>
@@ -142,36 +140,23 @@
 
     <div class="toast" id="toast"></div>
 
-    <!-- 
-    ============================================================
-    VAPI SDK LOADING - LOCAL FILE WITH POLLING
-    ============================================================
-    The SDK is loaded from a local file (vapi.js) in the same folder.
-    We use polling to wait for it to register in the global namespace.
-    -->
-    <script src="./vapi.js"></script>
+    <!-- VAPI SDK - Using script that exposes to window -->
+    <script>
+        // Pre-script: Track script loading
+        window._vapiScriptLoaded = false;
+        window._vapiScriptError = null;
+    </script>
+    <script src="./vapi.js" 
+            onload="window._vapiScriptLoaded = true; console.log('vapi.js script loaded');" 
+            onerror="window._vapiScriptError = 'Script failed to load'; console.error('vapi.js failed to load');"></script>
 
     <script>
-    // ==========================================
-    // Configuration & State
-    // ==========================================
     const CONFIG = { wake: 'hey mini', key: '', assist: '', debounce: 2000 };
     const state = { 
-        listening: false, 
-        calling: false, 
-        rec: null, 
-        vapi: null, 
-        vapiOk: false, 
-        sessions: 0, 
-        lastWake: 0, 
-        restart: null,
-        pollCount: 0,
-        maxPolls: 20  // 10 seconds max (20 * 500ms)
+        listening: false, calling: false, rec: null, vapi: null, vapiOk: false, 
+        sessions: 0, lastWake: 0, restart: null, pollCount: 0, maxPolls: 30
     };
 
-    // ==========================================
-    // Logging
-    // ==========================================
     function log(msg, type = '') {
         console.log(`[${type || 'info'}] ${msg}`);
         const logEl = document.getElementById('log');
@@ -181,108 +166,140 @@
         entry.textContent = `${new Date().toLocaleTimeString()} - ${msg}`;
         logEl.appendChild(entry);
         logEl.scrollTop = logEl.scrollHeight;
-        while (logEl.children.length > 30) logEl.removeChild(logEl.firstChild);
+        while (logEl.children.length > 50) logEl.removeChild(logEl.firstChild);
     }
 
-    // ==========================================
-    // POLLING LOGIC - Wait for Vapi SDK
-    // ==========================================
+    // Enhanced detection - check ALL possible exports
     function getVapiClass() {
-        // Check all possible global namespace locations
-        if (typeof window.Vapi === 'function') return window.Vapi;
-        if (typeof window.vapi === 'function') return window.vapi;
-        if (window.Vapi && typeof window.Vapi.default === 'function') return window.Vapi.default;
-        if (window.vapi && typeof window.vapi.default === 'function') return window.vapi.default;
-        if (typeof Vapi === 'function') return Vapi;
+        // Check common names
+        const names = ['Vapi', 'vapi', 'VAPI', 'VapiWeb', 'VapiSDK', 'vapiSDK', 'VapiClient'];
+        
+        for (const name of names) {
+            const obj = window[name];
+            if (!obj) continue;
+            
+            // Direct class/function
+            if (typeof obj === 'function') {
+                log(`Found ${name} as function`);
+                return obj;
+            }
+            
+            // ES Module default export
+            if (obj.default && typeof obj.default === 'function') {
+                log(`Found ${name}.default as function`);
+                return obj.default;
+            }
+            
+            // Named export
+            if (obj.Vapi && typeof obj.Vapi === 'function') {
+                log(`Found ${name}.Vapi as function`);
+                return obj.Vapi;
+            }
+        }
+        
+        // Check for any constructor-like function with 'vapi' in the name
+        for (const key of Object.keys(window)) {
+            if (key.toLowerCase().includes('vapi') && typeof window[key] === 'function') {
+                log(`Found ${key} as potential Vapi class`);
+                return window[key];
+            }
+        }
+        
         return null;
+    }
+
+    function debugGlobals() {
+        const found = [];
+        for (const key of Object.keys(window)) {
+            const lower = key.toLowerCase();
+            if (lower.includes('vapi') || lower.includes('daily')) {
+                found.push(`${key}(${typeof window[key]})`);
+            }
+        }
+        if (found.length) {
+            log(`Globals: ${found.join(', ')}`);
+        } else {
+            log('No Vapi/Daily globals found');
+        }
+        
+        // Check script status
+        log(`Script loaded: ${window._vapiScriptLoaded}, Error: ${window._vapiScriptError || 'none'}`);
     }
 
     function pollForVapi() {
         return new Promise((resolve) => {
-            const checkVapi = () => {
+            const check = () => {
                 state.pollCount++;
+                
+                // Debug on certain polls
+                if (state.pollCount === 1 || state.pollCount === 5 || state.pollCount === 15) {
+                    debugGlobals();
+                }
+                
+                // Check if script failed
+                if (window._vapiScriptError) {
+                    log(`Script error: ${window._vapiScriptError}`, 'error');
+                    setStatus('sVapi', 'Load Error', 'err');
+                    resolve(null);
+                    return;
+                }
+                
                 const VapiClass = getVapiClass();
                 
                 if (VapiClass) {
-                    log(`Vapi found after ${state.pollCount} polls`, 'success');
+                    log(`✓ Vapi found (poll ${state.pollCount})`, 'success');
                     setStatus('sVapi', 'Loaded', 'ok');
                     resolve(VapiClass);
                     return;
                 }
                 
                 if (state.pollCount >= state.maxPolls) {
-                    log(`Vapi not found after ${state.pollCount} polls`, 'error');
+                    log(`✗ Vapi not found after ${state.maxPolls} polls`, 'error');
+                    debugGlobals();
                     setStatus('sVapi', 'Not Found', 'err');
                     resolve(null);
                     return;
                 }
                 
-                // Update status to show polling progress
-                setStatus('sVapi', `Polling... (${state.pollCount}/${state.maxPolls})`, 'warn');
-                
-                // Poll again in 500ms
-                setTimeout(checkVapi, 500);
+                setStatus('sVapi', `Poll ${state.pollCount}/${state.maxPolls}`, 'warn');
+                setTimeout(check, 500);
             };
             
-            // Start polling
-            checkVapi();
+            setTimeout(check, 200);
         });
     }
 
-    // ==========================================
-    // Initialize
-    // ==========================================
     document.addEventListener('DOMContentLoaded', async () => {
-        log('Initializing Mini Voice Bridge...');
+        log('=== Mini Voice Bridge v2 ===');
         
-        // Load saved config
         loadConfig();
-        
-        // Check speech recognition support
         checkSpeech();
         
-        // Poll for Vapi SDK (local file)
-        log('Waiting for Vapi SDK to load...');
+        log('Waiting for Vapi SDK...');
         const VapiClass = await pollForVapi();
         
         if (VapiClass && CONFIG.key) {
             initVapi(VapiClass);
         } else if (!VapiClass) {
-            log('⚠️ Vapi SDK not loaded. Make sure vapi.js is in the same folder.', 'error');
+            log('SDK not loaded - wake word still works', 'error');
         }
         
-        // Initialize speech recognition
         initRecognition();
-        
-        // Check microphone permission
         await checkMic();
         
-        // Start in compact mode
         document.body.classList.add('compact');
         updateUI('idle', 'Ready', `Say <span class="badge">${CONFIG.wake}</span>`);
         
-        // Auto-start listening after 1 second
         setTimeout(() => { 
-            if (state.rec) {
-                start();
-                log('Auto-started wake word detection');
-            }
+            if (state.rec) { start(); log('Auto-started listening'); }
         }, 1000);
     });
 
-    // ==========================================
-    // Config Management
-    // ==========================================
     function loadConfig() {
         try {
             const s = localStorage.getItem('miniConfig');
-            if (s) {
-                Object.assign(CONFIG, JSON.parse(s));
-                log('Loaded saved configuration');
-            }
-        } catch (e) {
-            log('Could not load saved config', 'error');
-        }
+            if (s) Object.assign(CONFIG, JSON.parse(s));
+        } catch (e) {}
         document.getElementById('inWake').value = CONFIG.wake;
         document.getElementById('inKey').value = CONFIG.key;
         document.getElementById('inAssist').value = CONFIG.assist;
@@ -292,63 +309,35 @@
         CONFIG.wake = document.getElementById('inWake').value.toLowerCase().trim() || 'hey mini';
         CONFIG.key = document.getElementById('inKey').value.trim();
         CONFIG.assist = document.getElementById('inAssist').value.trim();
+        try { localStorage.setItem('miniConfig', JSON.stringify(CONFIG)); } catch (e) {}
         
-        try { 
-            localStorage.setItem('miniConfig', JSON.stringify(CONFIG)); 
-            log('Configuration saved');
-        } catch (e) {
-            log('Could not save config', 'error');
-        }
-        
-        // Reinitialize Vapi with new key
         const VapiClass = getVapiClass();
-        if (VapiClass && CONFIG.key) {
-            initVapi(VapiClass);
-        }
+        if (VapiClass && CONFIG.key && !state.vapiOk) initVapi(VapiClass);
         
         toast('Saved!', 'success');
-        
-        // Restart listening with new wake word
-        if (state.listening) { 
-            stop(); 
-            setTimeout(start, 300); 
-        }
+        if (state.listening) { stop(); setTimeout(start, 300); }
     }
 
-    // ==========================================
-    // Capability Checks
-    // ==========================================
     function checkSpeech() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const supported = !!SR;
-        setStatus('sSpeech', supported ? 'Supported' : 'Not Supported', supported ? 'ok' : 'err');
-        log(`Speech Recognition: ${supported ? 'Supported' : 'NOT SUPPORTED'}`);
-        return supported;
+        setStatus('sSpeech', SR ? 'Supported' : 'Not Supported', SR ? 'ok' : 'err');
+        log(`Speech: ${SR ? 'OK' : 'Not supported'}`);
+        return !!SR;
     }
 
     async function checkMic() {
         try {
             if (navigator.permissions) {
                 const r = await navigator.permissions.query({ name: 'microphone' });
-                const status = r.state === 'granted' ? 'Allowed' : r.state === 'denied' ? 'Blocked' : 'Prompt';
-                const cls = r.state === 'granted' ? 'ok' : r.state === 'denied' ? 'err' : 'warn';
-                setStatus('sMic', status, cls);
-                log(`Microphone permission: ${status}`);
+                setStatus('sMic', r.state === 'granted' ? 'Allowed' : r.state === 'denied' ? 'Blocked' : 'Prompt', 
+                         r.state === 'granted' ? 'ok' : r.state === 'denied' ? 'err' : 'warn');
             }
-        } catch (e) { 
-            setStatus('sMic', 'Unknown', 'warn'); 
-        }
+        } catch (e) { setStatus('sMic', 'Unknown', 'warn'); }
     }
 
-    // ==========================================
-    // Speech Recognition (Wake Word Detection)
-    // ==========================================
     function initRecognition() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) {
-            log('Speech Recognition not available in this browser', 'error');
-            return;
-        }
+        if (!SR) return;
         
         state.rec = new SR();
         state.rec.continuous = true;
@@ -360,21 +349,18 @@
             updateUI('listening');
             updateBtns(true);
             setStatus('sMic', 'Active', 'ok');
-            log('Listening for wake word...');
         };
 
         state.rec.onresult = (e) => {
             if (state.calling) return;
-            
             for (let i = e.resultIndex; i < e.results.length; i++) {
-                const transcript = e.results[i][0].transcript.toLowerCase();
-                
-                if (transcript.includes(CONFIG.wake.toLowerCase())) {
+                const t = e.results[i][0].transcript.toLowerCase();
+                if (t.includes(CONFIG.wake.toLowerCase())) {
                     const now = Date.now();
                     if (now - state.lastWake > CONFIG.debounce) {
                         state.lastWake = now;
-                        log(`✓ Wake word detected: "${transcript}"`, 'success');
-                        onWakeWordDetected();
+                        log(`✓ Wake: "${t}"`, 'success');
+                        onWake();
                         return;
                     }
                 }
@@ -382,185 +368,111 @@
         };
 
         state.rec.onerror = (e) => {
-            log(`Speech error: ${e.error}`, 'error');
-            
             if (e.error === 'not-allowed') {
                 setStatus('sMic', 'Blocked', 'err');
                 state.listening = false;
                 updateBtns(false);
-            } else if (e.error !== 'aborted') {
+            } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
                 scheduleRestart();
             }
         };
 
         state.rec.onend = () => {
-            if (state.listening && !state.calling) {
-                scheduleRestart();
-            }
+            if (state.listening && !state.calling) scheduleRestart();
         };
-        
-        log('Speech recognition initialized');
     }
 
     function scheduleRestart() {
         if (state.restart) clearTimeout(state.restart);
         state.restart = setTimeout(() => {
             if (state.listening && !state.calling && state.rec) {
-                try { 
-                    state.rec.start(); 
-                } catch (e) {
-                    // Ignore "already started" errors
-                }
+                try { state.rec.start(); } catch (e) {}
             }
         }, 200);
     }
 
     function start() {
         if (!state.rec || state.calling) return;
-        try {
-            state.listening = true;
-            state.rec.start();
-        } catch (e) {
-            if (e.message && e.message.includes('already started')) {
-                updateUI('listening');
-                updateBtns(true);
-            }
-        }
+        try { state.listening = true; state.rec.start(); } 
+        catch (e) { updateUI('listening'); updateBtns(true); }
     }
 
     function stop() {
         state.listening = false;
         if (state.restart) clearTimeout(state.restart);
-        try { 
-            if (state.rec) state.rec.stop(); 
-        } catch (e) {}
+        try { if (state.rec) state.rec.stop(); } catch (e) {}
         if (!state.calling) updateUI('idle');
         updateBtns(false);
-        log('Stopped listening');
     }
 
-    function toggle() { 
-        state.listening ? stop() : start(); 
-    }
+    function toggle() { state.listening ? stop() : start(); }
 
-    // ==========================================
-    // Vapi Integration
-    // ==========================================
     function initVapi(VapiClass) {
-        if (!CONFIG.key) {
-            log('No Vapi public key configured');
-            return;
-        }
-
+        if (!CONFIG.key) return;
         try {
             state.vapi = new VapiClass(CONFIG.key);
             state.vapiOk = true;
             setStatus('sVapi', 'Ready', 'ok');
-            log('Vapi client initialized');
+            log('Vapi ready', 'success');
 
-            // Set up event listeners
             state.vapi.on('call-start', () => {
                 state.calling = true;
                 state.sessions++;
                 document.getElementById('sSessions').textContent = state.sessions;
-                updateUI('active', 'Call Active', 'Speak to the assistant');
-                log('Vapi call started');
+                updateUI('active', 'Call Active', 'Speak now');
+                log('Call started');
             });
 
             state.vapi.on('call-end', () => {
                 state.calling = false;
                 updateUI('idle');
-                log('Vapi call ended');
-                // Auto-restart wake word detection
+                log('Call ended');
                 setTimeout(start, 1000);
-            });
-
-            state.vapi.on('speech-start', () => {
-                log('User speaking...');
-            });
-
-            state.vapi.on('speech-end', () => {
-                log('User stopped speaking');
-            });
-
-            state.vapi.on('message', (msg) => {
-                if (msg.type === 'transcript' && msg.transcript) {
-                    log(`[${msg.role}]: ${msg.transcript}`);
-                }
             });
 
             state.vapi.on('error', (err) => {
                 state.calling = false;
-                const errMsg = err?.message || err?.errorMsg || JSON.stringify(err);
-                log(`Vapi error: ${errMsg}`, 'error');
-                toast('Call error', 'error');
+                log(`Error: ${err?.message || err}`, 'error');
                 setTimeout(start, 2000);
             });
-            
         } catch (e) {
-            log(`Failed to initialize Vapi: ${e.message}`, 'error');
+            log(`Init failed: ${e.message}`, 'error');
             state.vapiOk = false;
-            setStatus('sVapi', 'Init Error', 'err');
+            setStatus('sVapi', 'Error', 'err');
         }
     }
 
-    function onWakeWordDetected() {
-        // Play activation sound
+    function onWake() {
         playSound();
-        
-        // Stop wake word detection
         stop();
-        
-        // Update UI
-        updateUI('active', 'Wake Word Detected!', 'Connecting to assistant...');
+        updateUI('active', 'Wake Detected!', 'Connecting...');
 
-        // Validate Vapi is ready
-        if (!state.vapiOk || !state.vapi) {
-            log('Vapi not ready. Check SDK and API key.', 'error');
-            toast('Vapi not configured', 'error');
+        if (!state.vapiOk) {
+            toast('Configure Vapi first', 'error');
             setTimeout(start, 3000);
             return;
         }
-
-        if (!CONFIG.key) {
-            log('No Vapi public key', 'error');
-            toast('Add Vapi key in settings', 'error');
-            setTimeout(start, 3000);
-            return;
-        }
-        
         if (!CONFIG.assist) {
-            log('No Assistant ID configured', 'error');
-            toast('Add Assistant ID in settings', 'error');
+            toast('Add Assistant ID', 'error');
             setTimeout(start, 3000);
             return;
         }
 
-        // Start the Vapi call
-        try {
-            log('Starting Vapi call...');
-            state.vapi.start(CONFIG.assist);
+        try { 
+            log('Starting call...');
+            state.vapi.start(CONFIG.assist); 
         } catch (e) {
-            log(`Failed to start call: ${e.message}`, 'error');
-            toast('Call failed to start', 'error');
+            log(`Call failed: ${e.message}`, 'error');
             setTimeout(start, 2000);
         }
     }
 
     function endCall() {
-        if (state.vapi && state.calling) {
-            try { 
-                state.vapi.stop(); 
-                log('Call ended by user');
-            } catch (e) {}
-        }
+        if (state.vapi && state.calling) try { state.vapi.stop(); } catch (e) {}
         state.calling = false;
         updateUI('idle');
     }
 
-    // ==========================================
-    // UI Functions
-    // ==========================================
     function updateUI(type, title, sub) {
         const status = document.getElementById('status');
         const icon = document.getElementById('icon');
@@ -575,21 +487,17 @@
         dot.className = 'dot';
 
         if (type === 'listening') {
-            status.classList.add('listening');
-            widget.classList.add('listening');
-            dot.classList.add('listening');
+            status.classList.add('listening'); widget.classList.add('listening'); dot.classList.add('listening');
             icon.textContent = '👂';
             titleEl.textContent = title || 'Listening';
             subEl.innerHTML = sub || `Say <span class="badge">${CONFIG.wake}</span>`;
             wText.textContent = `Listening: "${CONFIG.wake}"`;
         } else if (type === 'active') {
-            status.classList.add('active');
-            widget.classList.add('active');
-            dot.classList.add('active');
+            status.classList.add('active'); widget.classList.add('active'); dot.classList.add('active');
             icon.textContent = '🗣️';
             titleEl.textContent = title || 'Active';
             subEl.textContent = sub || 'In progress';
-            wText.textContent = title || 'Call active';
+            wText.textContent = title || 'Active';
         } else {
             icon.textContent = '🎤';
             titleEl.textContent = title || 'Ready';
@@ -605,31 +513,13 @@
 
     function setStatus(id, text, cls) {
         const el = document.getElementById(id);
-        if (el) { 
-            el.textContent = text; 
-            el.className = 'row-value ' + (cls || ''); 
-        }
+        if (el) { el.textContent = text; el.className = 'row-value ' + (cls || ''); }
     }
 
-    function minimize() { 
-        document.body.classList.add('compact'); 
-        hideControls(); 
-    }
-    
-    function expand() { 
-        document.body.classList.remove('compact'); 
-        hideControls(); 
-    }
-    
-    function toggleControls(e) { 
-        e.stopPropagation(); 
-        document.getElementById('controls').classList.toggle('show'); 
-    }
-    
-    function hideControls() { 
-        document.getElementById('controls').classList.remove('show'); 
-    }
-    
+    function minimize() { document.body.classList.add('compact'); hideControls(); }
+    function expand() { document.body.classList.remove('compact'); hideControls(); }
+    function toggleControls(e) { e.stopPropagation(); document.getElementById('controls').classList.toggle('show'); }
+    function hideControls() { document.getElementById('controls').classList.remove('show'); }
     document.addEventListener('click', hideControls);
 
     function toast(msg, type) {
@@ -639,33 +529,24 @@
         setTimeout(() => t.classList.remove('show'), 3000);
     }
 
-    function testMic() {
-        if (!state.listening) start();
-        toast(`Say "${CONFIG.wake}" to test`, 'success');
-    }
+    function testMic() { if (!state.listening) start(); toast(`Say "${CONFIG.wake}"`, 'success'); }
 
     function playSound() {
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const o = ctx.createOscillator();
             const g = ctx.createGain();
-            o.connect(g); 
-            g.connect(ctx.destination);
+            o.connect(g); g.connect(ctx.destination);
             o.frequency.setValueAtTime(880, ctx.currentTime);
             o.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
             g.gain.setValueAtTime(0.1, ctx.currentTime);
             g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-            o.start(); 
-            o.stop(ctx.currentTime + 0.2);
+            o.start(); o.stop(ctx.currentTime + 0.2);
         } catch (e) {}
     }
 
-    // Keep listening when tab becomes visible again
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && state.listening && !state.calling) {
-            log('Tab visible - resuming detection');
-            scheduleRestart();
-        }
+        if (document.visibilityState === 'visible' && state.listening && !state.calling) scheduleRestart();
     });
     </script>
 </body>
