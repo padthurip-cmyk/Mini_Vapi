@@ -3,101 +3,670 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vapi AI - Netlify Deploy</title>
+    <title>Mini Voice Bridge</title>
     <style>
-        :root { --bg: #0a0a0a; --card: #171717; --accent: #3b82f6; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: #ededed; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .container { background: var(--card); padding: 2.5rem; border-radius: 20px; width: 400px; border: 1px solid #333; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-        .status-pill { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 999px; font-size: 0.75rem; background: #262626; margin-bottom: 20px; border: 1px solid #404040; }
-        .dot { height: 6px; width: 6px; border-radius: 50%; background: #ef4444; margin-right: 8px; }
-        .dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
-        input { width: 100%; padding: 12px; background: #0a0a0a; border: 1px solid #404040; border-radius: 10px; color: #fff; margin-bottom: 12px; box-sizing: border-box; outline: none; transition: border 0.2s; }
-        input:focus { border-color: var(--accent); }
-        button { width: 100%; padding: 14px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; background: var(--accent); color: white; font-size: 1rem; }
-        button:disabled { background: #262626; color: #737373; cursor: not-allowed; }
-        #logs { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.7rem; background: #000; color: #a3a3a3; padding: 12px; height: 100px; overflow-y: auto; margin-top: 20px; border-radius: 8px; border: 1px solid #262626; line-height: 1.5; }
+        :root { --bg: #0a0a0f; --bg2: #12121a; --bg3: #1a1a25; --accent: #00d4aa; --text: #fff; --text2: #8b8b9e; --border: #2a2a3a; --danger: #ff6b6b; --warning: #ffd93d; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        body.compact .full { display: none; }
+        body.compact .widget { display: flex; }
+        
+        .widget { display: none; position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; align-items: center; gap: 12px; cursor: pointer; z-index: 9999; min-width: 200px; }
+        .widget:hover { border-color: var(--accent); }
+        .widget.listening { border-color: var(--accent); box-shadow: 0 0 20px rgba(0,212,170,0.3); }
+        .widget.active { border-color: var(--warning); }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text2); }
+        .dot.listening { background: var(--accent); animation: pulse 2s infinite; }
+        .dot.active { background: var(--warning); animation: pulse 1s infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; transform: scale(1.2); } }
+        .widget-text { flex: 1; font-size: 14px; }
+        
+        .controls { display: none; position: fixed; bottom: 75px; right: 20px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; z-index: 9998; }
+        .controls.show { display: flex; flex-direction: column; gap: 4px; }
+        .controls button { background: var(--bg3); border: none; padding: 10px 14px; color: var(--text); border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; }
+        .controls button:hover { background: var(--bg); }
+        
+        .full { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        .logo { font-size: 20px; font-weight: 700; }
+        .logo span { color: var(--accent); }
+        .header-btns { display: flex; gap: 8px; }
+        .btn { background: var(--bg2); border: 1px solid var(--border); padding: 10px 16px; color: var(--text); border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .btn:hover { border-color: var(--accent); }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+        
+        .status { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
+        .status.listening { border-color: var(--accent); }
+        .status.active { border-color: var(--warning); }
+        .status-icon { width: 48px; height: 48px; background: var(--bg3); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .status-title { font-size: 18px; font-weight: 600; }
+        .status-sub { color: var(--text2); margin-top: 4px; }
+        .badge { background: var(--bg3); padding: 2px 8px; border-radius: 4px; color: var(--accent); font-family: monospace; }
+        
+        .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+        .card-title { font-size: 12px; color: var(--text2); text-transform: uppercase; margin-bottom: 12px; }
+        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .row:last-child { border: none; }
+        .row-label { color: var(--text2); }
+        .row-value { font-family: monospace; }
+        .row-value.ok { color: var(--accent); }
+        .row-value.warn { color: var(--warning); }
+        .row-value.err { color: var(--danger); }
+        
+        .input-group { margin-bottom: 14px; }
+        .input-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
+        .input-group input { width: 100%; background: var(--bg3); border: 1px solid var(--border); padding: 10px 12px; color: var(--text); border-radius: 6px; font-family: monospace; }
+        .input-group input:focus { outline: none; border-color: var(--accent); }
+        .settings-btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+        
+        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(50px); background: var(--bg2); border: 1px solid var(--border); padding: 12px 20px; border-radius: 10px; opacity: 0; transition: all 0.3s; z-index: 10000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .toast.error { border-color: var(--danger); }
+        .toast.success { border-color: var(--accent); }
+        
+        .log { background: var(--bg3); border-radius: 8px; padding: 12px; margin-top: 16px; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 11px; color: var(--text2); }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid var(--border); }
+        .log-entry:last-child { border: none; }
+        .log-entry.error { color: var(--danger); }
+        .log-entry.success { color: var(--accent); }
+        
+        @media (max-width: 500px) {
+            .header { flex-direction: column; text-align: center; }
+            .status { flex-direction: column; text-align: center; }
+            .widget { left: 20px; min-width: auto; }
+            .controls { left: 20px; }
+        }
     </style>
 </head>
 <body>
-
-<div class="container">
-    <div class="status-pill">
-        <div id="status-dot" class="dot"></div>
-        <span id="status-text">Connecting to Vapi...</span>
+    <!-- Compact Widget -->
+    <div class="widget" id="widget" onclick="toggleControls(event)">
+        <div class="dot" id="wDot"></div>
+        <div class="widget-text" id="wText">Starting...</div>
+        <span>⚙️</span>
     </div>
-    
-    <input type="text" id="pub-key" placeholder="Vapi Public Key (pk_...)">
-    <input type="text" id="ast-id" placeholder="Assistant ID (uuid...)">
+    <div class="controls" id="controls">
+        <button onclick="expand()">🔲 Open Interface</button>
+        <button id="cToggle" onclick="toggle()">⏸️ Pause</button>
+        <button onclick="endCall()">⏹️ End Call</button>
+    </div>
 
-    <button id="start-btn" disabled>Loading Engine...</button>
-    <button id="stop-btn" style="display:none; background: #dc2626; margin-top: 10px;">End Call</button>
+    <!-- Full Interface -->
+    <div class="full">
+        <div class="header">
+            <div class="logo">🎙️ Hey <span>Mini</span></div>
+            <div class="header-btns">
+                <button class="btn" onclick="minimize()">📌 Minimize</button>
+                <button class="btn primary" id="mainBtn" onclick="toggle()">👂 Start</button>
+            </div>
+        </div>
 
-    <div id="logs">System: Initializing edge connection...</div>
-</div>
+        <div class="status" id="status">
+            <div class="status-icon" id="icon">🎤</div>
+            <div>
+                <div class="status-title" id="title">Initializing...</div>
+                <div class="status-sub" id="sub">Please wait</div>
+            </div>
+        </div>
 
+        <div class="card">
+            <div class="card-title">System Status</div>
+            <div class="row"><span class="row-label">Speech Recognition</span><span class="row-value" id="sSpeech">...</span></div>
+            <div class="row"><span class="row-label">Vapi SDK</span><span class="row-value" id="sVapi">Loading...</span></div>
+            <div class="row"><span class="row-label">Microphone</span><span class="row-value" id="sMic">...</span></div>
+            <div class="row"><span class="row-label">Sessions</span><span class="row-value" id="sSessions">0</span></div>
+        </div>
 
+        <div class="card">
+            <div class="card-title">Configuration</div>
+            <div class="input-group">
+                <label>Wake Word</label>
+                <input id="inWake" value="hey mini" placeholder="hey mini">
+            </div>
+            <div class="input-group">
+                <label>Vapi Public Key</label>
+                <input id="inKey" placeholder="pk_xxxxxxxx">
+            </div>
+            <div class="input-group">
+                <label>Assistant ID</label>
+                <input id="inAssist" placeholder="your-assistant-id">
+            </div>
+            <div class="settings-btns">
+                <button class="btn primary" onclick="save()">💾 Save</button>
+                <button class="btn" onclick="testMic()">🎤 Test Mic</button>
+            </div>
+            
+            <div class="log" id="log"></div>
+        </div>
+    </div>
 
-<script type="module">
-    // Using an ES Module import is often more reliable on Netlify
-    import Vapi from 'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.es.js';
+    <div class="toast" id="toast"></div>
 
-    const logEl = document.getElementById('logs');
-    const startBtn = document.getElementById('start-btn');
-    const statusDot = document.getElementById('status-dot');
-    const statusText = document.getElementById('status-text');
-    let vapiInstance = null;
+    <!-- 
+    ============================================================
+    VAPI SDK LOADING - LOCAL FILE WITH POLLING
+    ============================================================
+    The SDK is loaded from a local file (vapi.js) in the same folder.
+    We use polling to wait for it to register in the global namespace.
+    -->
+    <script src="./vapi.js"></script>
 
-    function addLog(msg) {
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        logEl.innerHTML += `<div><span style="color: #525252">${time}</span> ${msg}</div>`;
+    <script>
+    // ==========================================
+    // Configuration & State
+    // ==========================================
+    const CONFIG = { wake: 'hey mini', key: '', assist: '', debounce: 2000 };
+    const state = { 
+        listening: false, 
+        calling: false, 
+        rec: null, 
+        vapi: null, 
+        vapiOk: false, 
+        sessions: 0, 
+        lastWake: 0, 
+        restart: null,
+        pollCount: 0,
+        maxPolls: 20  // 10 seconds max (20 * 500ms)
+    };
+
+    // ==========================================
+    // Logging
+    // ==========================================
+    function log(msg, type = '') {
+        console.log(`[${type || 'info'}] ${msg}`);
+        const logEl = document.getElementById('log');
+        if (!logEl) return;
+        const entry = document.createElement('div');
+        entry.className = 'log-entry ' + type;
+        entry.textContent = `${new Date().toLocaleTimeString()} - ${msg}`;
+        logEl.appendChild(entry);
         logEl.scrollTop = logEl.scrollHeight;
+        while (logEl.children.length > 30) logEl.removeChild(logEl.firstChild);
     }
 
-    // Since we are using type="module", Vapi is imported directly
-    try {
-        addLog("Vapi Module loaded.");
-        statusDot.classList.add('online');
-        statusText.innerText = "Vapi Online";
-        startBtn.innerText = "Start Assistant";
-        startBtn.disabled = false;
-    } catch (e) {
-        addLog("Critical: Module Load Failed.");
+    // ==========================================
+    // POLLING LOGIC - Wait for Vapi SDK
+    // ==========================================
+    function getVapiClass() {
+        // Check all possible global namespace locations
+        if (typeof window.Vapi === 'function') return window.Vapi;
+        if (typeof window.vapi === 'function') return window.vapi;
+        if (window.Vapi && typeof window.Vapi.default === 'function') return window.Vapi.default;
+        if (window.vapi && typeof window.vapi.default === 'function') return window.vapi.default;
+        if (typeof Vapi === 'function') return Vapi;
+        return null;
     }
 
-    async function startAssistant() {
-        const key = document.getElementById('pub-key').value.trim();
-        const id = document.getElementById('ast-id').value.trim();
+    function pollForVapi() {
+        return new Promise((resolve) => {
+            const checkVapi = () => {
+                state.pollCount++;
+                const VapiClass = getVapiClass();
+                
+                if (VapiClass) {
+                    log(`Vapi found after ${state.pollCount} polls`, 'success');
+                    setStatus('sVapi', 'Loaded', 'ok');
+                    resolve(VapiClass);
+                    return;
+                }
+                
+                if (state.pollCount >= state.maxPolls) {
+                    log(`Vapi not found after ${state.pollCount} polls`, 'error');
+                    setStatus('sVapi', 'Not Found', 'err');
+                    resolve(null);
+                    return;
+                }
+                
+                // Update status to show polling progress
+                setStatus('sVapi', `Polling... (${state.pollCount}/${state.maxPolls})`, 'warn');
+                
+                // Poll again in 500ms
+                setTimeout(checkVapi, 500);
+            };
+            
+            // Start polling
+            checkVapi();
+        });
+    }
 
-        if(!key || !id) {
-            addLog("Error: Keys missing.");
+    // ==========================================
+    // Initialize
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', async () => {
+        log('Initializing Mini Voice Bridge...');
+        
+        // Load saved config
+        loadConfig();
+        
+        // Check speech recognition support
+        checkSpeech();
+        
+        // Poll for Vapi SDK (local file)
+        log('Waiting for Vapi SDK to load...');
+        const VapiClass = await pollForVapi();
+        
+        if (VapiClass && CONFIG.key) {
+            initVapi(VapiClass);
+        } else if (!VapiClass) {
+            log('⚠️ Vapi SDK not loaded. Make sure vapi.js is in the same folder.', 'error');
+        }
+        
+        // Initialize speech recognition
+        initRecognition();
+        
+        // Check microphone permission
+        await checkMic();
+        
+        // Start in compact mode
+        document.body.classList.add('compact');
+        updateUI('idle', 'Ready', `Say <span class="badge">${CONFIG.wake}</span>`);
+        
+        // Auto-start listening after 1 second
+        setTimeout(() => { 
+            if (state.rec) {
+                start();
+                log('Auto-started wake word detection');
+            }
+        }, 1000);
+    });
+
+    // ==========================================
+    // Config Management
+    // ==========================================
+    function loadConfig() {
+        try {
+            const s = localStorage.getItem('miniConfig');
+            if (s) {
+                Object.assign(CONFIG, JSON.parse(s));
+                log('Loaded saved configuration');
+            }
+        } catch (e) {
+            log('Could not load saved config', 'error');
+        }
+        document.getElementById('inWake').value = CONFIG.wake;
+        document.getElementById('inKey').value = CONFIG.key;
+        document.getElementById('inAssist').value = CONFIG.assist;
+    }
+
+    function save() {
+        CONFIG.wake = document.getElementById('inWake').value.toLowerCase().trim() || 'hey mini';
+        CONFIG.key = document.getElementById('inKey').value.trim();
+        CONFIG.assist = document.getElementById('inAssist').value.trim();
+        
+        try { 
+            localStorage.setItem('miniConfig', JSON.stringify(CONFIG)); 
+            log('Configuration saved');
+        } catch (e) {
+            log('Could not save config', 'error');
+        }
+        
+        // Reinitialize Vapi with new key
+        const VapiClass = getVapiClass();
+        if (VapiClass && CONFIG.key) {
+            initVapi(VapiClass);
+        }
+        
+        toast('Saved!', 'success');
+        
+        // Restart listening with new wake word
+        if (state.listening) { 
+            stop(); 
+            setTimeout(start, 300); 
+        }
+    }
+
+    // ==========================================
+    // Capability Checks
+    // ==========================================
+    function checkSpeech() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const supported = !!SR;
+        setStatus('sSpeech', supported ? 'Supported' : 'Not Supported', supported ? 'ok' : 'err');
+        log(`Speech Recognition: ${supported ? 'Supported' : 'NOT SUPPORTED'}`);
+        return supported;
+    }
+
+    async function checkMic() {
+        try {
+            if (navigator.permissions) {
+                const r = await navigator.permissions.query({ name: 'microphone' });
+                const status = r.state === 'granted' ? 'Allowed' : r.state === 'denied' ? 'Blocked' : 'Prompt';
+                const cls = r.state === 'granted' ? 'ok' : r.state === 'denied' ? 'err' : 'warn';
+                setStatus('sMic', status, cls);
+                log(`Microphone permission: ${status}`);
+            }
+        } catch (e) { 
+            setStatus('sMic', 'Unknown', 'warn'); 
+        }
+    }
+
+    // ==========================================
+    // Speech Recognition (Wake Word Detection)
+    // ==========================================
+    function initRecognition() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            log('Speech Recognition not available in this browser', 'error');
+            return;
+        }
+        
+        state.rec = new SR();
+        state.rec.continuous = true;
+        state.rec.interimResults = true;
+        state.rec.lang = 'en-US';
+
+        state.rec.onstart = () => {
+            state.listening = true;
+            updateUI('listening');
+            updateBtns(true);
+            setStatus('sMic', 'Active', 'ok');
+            log('Listening for wake word...');
+        };
+
+        state.rec.onresult = (e) => {
+            if (state.calling) return;
+            
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                const transcript = e.results[i][0].transcript.toLowerCase();
+                
+                if (transcript.includes(CONFIG.wake.toLowerCase())) {
+                    const now = Date.now();
+                    if (now - state.lastWake > CONFIG.debounce) {
+                        state.lastWake = now;
+                        log(`✓ Wake word detected: "${transcript}"`, 'success');
+                        onWakeWordDetected();
+                        return;
+                    }
+                }
+            }
+        };
+
+        state.rec.onerror = (e) => {
+            log(`Speech error: ${e.error}`, 'error');
+            
+            if (e.error === 'not-allowed') {
+                setStatus('sMic', 'Blocked', 'err');
+                state.listening = false;
+                updateBtns(false);
+            } else if (e.error !== 'aborted') {
+                scheduleRestart();
+            }
+        };
+
+        state.rec.onend = () => {
+            if (state.listening && !state.calling) {
+                scheduleRestart();
+            }
+        };
+        
+        log('Speech recognition initialized');
+    }
+
+    function scheduleRestart() {
+        if (state.restart) clearTimeout(state.restart);
+        state.restart = setTimeout(() => {
+            if (state.listening && !state.calling && state.rec) {
+                try { 
+                    state.rec.start(); 
+                } catch (e) {
+                    // Ignore "already started" errors
+                }
+            }
+        }, 200);
+    }
+
+    function start() {
+        if (!state.rec || state.calling) return;
+        try {
+            state.listening = true;
+            state.rec.start();
+        } catch (e) {
+            if (e.message && e.message.includes('already started')) {
+                updateUI('listening');
+                updateBtns(true);
+            }
+        }
+    }
+
+    function stop() {
+        state.listening = false;
+        if (state.restart) clearTimeout(state.restart);
+        try { 
+            if (state.rec) state.rec.stop(); 
+        } catch (e) {}
+        if (!state.calling) updateUI('idle');
+        updateBtns(false);
+        log('Stopped listening');
+    }
+
+    function toggle() { 
+        state.listening ? stop() : start(); 
+    }
+
+    // ==========================================
+    // Vapi Integration
+    // ==========================================
+    function initVapi(VapiClass) {
+        if (!CONFIG.key) {
+            log('No Vapi public key configured');
             return;
         }
 
         try {
-            vapiInstance = new Vapi(key);
-            vapiInstance.start(id);
+            state.vapi = new VapiClass(CONFIG.key);
+            state.vapiOk = true;
+            setStatus('sVapi', 'Ready', 'ok');
+            log('Vapi client initialized');
 
-            vapiInstance.on('call-start', () => {
-                addLog("🔴 Assistant connected.");
-                startBtn.style.display = 'none';
-                document.getElementById('stop-btn').style.display = 'block';
+            // Set up event listeners
+            state.vapi.on('call-start', () => {
+                state.calling = true;
+                state.sessions++;
+                document.getElementById('sSessions').textContent = state.sessions;
+                updateUI('active', 'Call Active', 'Speak to the assistant');
+                log('Vapi call started');
             });
 
-            vapiInstance.on('call-end', () => {
-                addLog("Call ended.");
-                startBtn.style.display = 'block';
-                document.getElementById('stop-btn').style.display = 'none';
+            state.vapi.on('call-end', () => {
+                state.calling = false;
+                updateUI('idle');
+                log('Vapi call ended');
+                // Auto-restart wake word detection
+                setTimeout(start, 1000);
             });
 
-            vapiInstance.on('error', (e) => addLog("Error: " + e));
-        } catch (err) {
-            addLog("Connection failed: " + err.message);
+            state.vapi.on('speech-start', () => {
+                log('User speaking...');
+            });
+
+            state.vapi.on('speech-end', () => {
+                log('User stopped speaking');
+            });
+
+            state.vapi.on('message', (msg) => {
+                if (msg.type === 'transcript' && msg.transcript) {
+                    log(`[${msg.role}]: ${msg.transcript}`);
+                }
+            });
+
+            state.vapi.on('error', (err) => {
+                state.calling = false;
+                const errMsg = err?.message || err?.errorMsg || JSON.stringify(err);
+                log(`Vapi error: ${errMsg}`, 'error');
+                toast('Call error', 'error');
+                setTimeout(start, 2000);
+            });
+            
+        } catch (e) {
+            log(`Failed to initialize Vapi: ${e.message}`, 'error');
+            state.vapiOk = false;
+            setStatus('sVapi', 'Init Error', 'err');
         }
     }
 
-    startBtn.addEventListener('click', startAssistant);
-    document.getElementById('stop-btn').addEventListener('click', () => vapiInstance?.stop());
-</script>
+    function onWakeWordDetected() {
+        // Play activation sound
+        playSound();
+        
+        // Stop wake word detection
+        stop();
+        
+        // Update UI
+        updateUI('active', 'Wake Word Detected!', 'Connecting to assistant...');
 
+        // Validate Vapi is ready
+        if (!state.vapiOk || !state.vapi) {
+            log('Vapi not ready. Check SDK and API key.', 'error');
+            toast('Vapi not configured', 'error');
+            setTimeout(start, 3000);
+            return;
+        }
+
+        if (!CONFIG.key) {
+            log('No Vapi public key', 'error');
+            toast('Add Vapi key in settings', 'error');
+            setTimeout(start, 3000);
+            return;
+        }
+        
+        if (!CONFIG.assist) {
+            log('No Assistant ID configured', 'error');
+            toast('Add Assistant ID in settings', 'error');
+            setTimeout(start, 3000);
+            return;
+        }
+
+        // Start the Vapi call
+        try {
+            log('Starting Vapi call...');
+            state.vapi.start(CONFIG.assist);
+        } catch (e) {
+            log(`Failed to start call: ${e.message}`, 'error');
+            toast('Call failed to start', 'error');
+            setTimeout(start, 2000);
+        }
+    }
+
+    function endCall() {
+        if (state.vapi && state.calling) {
+            try { 
+                state.vapi.stop(); 
+                log('Call ended by user');
+            } catch (e) {}
+        }
+        state.calling = false;
+        updateUI('idle');
+    }
+
+    // ==========================================
+    // UI Functions
+    // ==========================================
+    function updateUI(type, title, sub) {
+        const status = document.getElementById('status');
+        const icon = document.getElementById('icon');
+        const titleEl = document.getElementById('title');
+        const subEl = document.getElementById('sub');
+        const widget = document.getElementById('widget');
+        const dot = document.getElementById('wDot');
+        const wText = document.getElementById('wText');
+
+        status.className = 'status';
+        widget.className = 'widget';
+        dot.className = 'dot';
+
+        if (type === 'listening') {
+            status.classList.add('listening');
+            widget.classList.add('listening');
+            dot.classList.add('listening');
+            icon.textContent = '👂';
+            titleEl.textContent = title || 'Listening';
+            subEl.innerHTML = sub || `Say <span class="badge">${CONFIG.wake}</span>`;
+            wText.textContent = `Listening: "${CONFIG.wake}"`;
+        } else if (type === 'active') {
+            status.classList.add('active');
+            widget.classList.add('active');
+            dot.classList.add('active');
+            icon.textContent = '🗣️';
+            titleEl.textContent = title || 'Active';
+            subEl.textContent = sub || 'In progress';
+            wText.textContent = title || 'Call active';
+        } else {
+            icon.textContent = '🎤';
+            titleEl.textContent = title || 'Ready';
+            subEl.innerHTML = sub || `Say <span class="badge">${CONFIG.wake}</span>`;
+            wText.textContent = 'Tap to start';
+        }
+    }
+
+    function updateBtns(on) {
+        document.getElementById('mainBtn').textContent = on ? '⏸️ Pause' : '👂 Start';
+        document.getElementById('cToggle').textContent = on ? '⏸️ Pause' : '👂 Start';
+    }
+
+    function setStatus(id, text, cls) {
+        const el = document.getElementById(id);
+        if (el) { 
+            el.textContent = text; 
+            el.className = 'row-value ' + (cls || ''); 
+        }
+    }
+
+    function minimize() { 
+        document.body.classList.add('compact'); 
+        hideControls(); 
+    }
+    
+    function expand() { 
+        document.body.classList.remove('compact'); 
+        hideControls(); 
+    }
+    
+    function toggleControls(e) { 
+        e.stopPropagation(); 
+        document.getElementById('controls').classList.toggle('show'); 
+    }
+    
+    function hideControls() { 
+        document.getElementById('controls').classList.remove('show'); 
+    }
+    
+    document.addEventListener('click', hideControls);
+
+    function toast(msg, type) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast show ' + (type || '');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function testMic() {
+        if (!state.listening) start();
+        toast(`Say "${CONFIG.wake}" to test`, 'success');
+    }
+
+    function playSound() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.connect(g); 
+            g.connect(ctx.destination);
+            o.frequency.setValueAtTime(880, ctx.currentTime);
+            o.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+            g.gain.setValueAtTime(0.1, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+            o.start(); 
+            o.stop(ctx.currentTime + 0.2);
+        } catch (e) {}
+    }
+
+    // Keep listening when tab becomes visible again
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && state.listening && !state.calling) {
+            log('Tab visible - resuming detection');
+            scheduleRestart();
+        }
+    });
+    </script>
 </body>
 </html>
