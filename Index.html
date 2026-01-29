@@ -53,15 +53,7 @@
         .row-value.warn { color: var(--warning); }
         .row-value.err { color: var(--danger); }
         
-        .live-transcript {
-            background: var(--bg3);
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 20px;
-            min-height: 80px;
-            transition: border-color 0.3s;
-        }
+        .live-transcript { background: var(--bg3); border: 2px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px; min-height: 80px; transition: border-color 0.3s; }
         .live-transcript.hearing { border-color: var(--accent); box-shadow: 0 0 10px rgba(0, 212, 170, 0.2); }
         .live-transcript-label { font-size: 11px; color: var(--text2); text-transform: uppercase; margin-bottom: 8px; }
         .live-transcript-text { font-size: 16px; color: var(--text); min-height: 24px; }
@@ -180,6 +172,14 @@
         maxAborts: 5
     };
 
+    // Multiple CDN sources for Vapi SDK
+    const VAPI_SDK_URLS = [
+        'https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js',
+        'https://unpkg.com/@vapi-ai/web@latest/dist/vapi.umd.js',
+        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.umd.js',
+        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.2.0/dist/vapi.umd.js'
+    ];
+
     // =====================================================
     // LOGGING
     // =====================================================
@@ -216,34 +216,27 @@
     }
 
     // =====================================================
-    // VAPI SDK - Direct Initialization (No HTML SDK)
+    // VAPI SDK LOADER - Multiple fallbacks
     // =====================================================
-    async function loadVapiSDK() {
-        setStatus('sVapi', 'Loading...', 'warn');
-        
+    function loadScript(url, timeout = 10000) {
         return new Promise((resolve) => {
             const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/@vapi-ai/web@2.2.3/dist/vapi.umd.js';
+            script.src = url;
             script.async = true;
             
+            const timer = setTimeout(() => {
+                script.remove();
+                resolve(false);
+            }, timeout);
+            
             script.onload = () => {
-                // Give it a moment to register
-                setTimeout(() => {
-                    if (typeof Vapi !== 'undefined') {
-                        log('✓ Vapi SDK loaded', 'success');
-                        setStatus('sVapi', 'Loaded', 'ok');
-                        resolve(true);
-                    } else {
-                        log('Vapi not found after load', 'error');
-                        setStatus('sVapi', 'Not Found', 'err');
-                        resolve(false);
-                    }
-                }, 500);
+                clearTimeout(timer);
+                resolve(true);
             };
             
             script.onerror = () => {
-                log('Failed to load Vapi SDK', 'error');
-                setStatus('sVapi', 'Failed', 'err');
+                clearTimeout(timer);
+                script.remove();
                 resolve(false);
             };
             
@@ -251,38 +244,69 @@
         });
     }
 
+    function getVapiClass() {
+        // Check all possible global names
+        if (typeof Vapi !== 'undefined' && typeof Vapi === 'function') return Vapi;
+        if (window.Vapi && typeof window.Vapi === 'function') return window.Vapi;
+        if (window.vapiSDK && window.vapiSDK.run) return window.vapiSDK;
+        if (window.Vapi && window.Vapi.default) return window.Vapi.default;
+        return null;
+    }
+
+    async function loadVapiSDK() {
+        setStatus('sVapi', 'Loading...', 'warn');
+        
+        for (let i = 0; i < VAPI_SDK_URLS.length; i++) {
+            const url = VAPI_SDK_URLS[i];
+            log(`Trying SDK ${i + 1}/${VAPI_SDK_URLS.length}...`);
+            
+            const loaded = await loadScript(url, 8000);
+            
+            if (loaded) {
+                // Wait a moment for the script to execute
+                await new Promise(r => setTimeout(r, 500));
+                
+                const VapiClass = getVapiClass();
+                if (VapiClass) {
+                    log(`✓ SDK loaded from source ${i + 1}`, 'success');
+                    setStatus('sVapi', 'Loaded', 'ok');
+                    return VapiClass;
+                }
+            }
+        }
+        
+        log('All SDK sources failed', 'error');
+        setStatus('sVapi', 'Failed', 'err');
+        return null;
+    }
+
     // =====================================================
     // INITIALIZATION
     // =====================================================
     document.addEventListener('DOMContentLoaded', async () => {
-        log('=== Mini Voice Bridge v3 ===');
+        log('=== Mini Voice Bridge v4 ===');
         
         loadConfig();
         checkSpeech();
         
-        // Load Vapi SDK
-        const vapiLoaded = await loadVapiSDK();
+        // Load Vapi SDK with fallbacks
+        const VapiClass = await loadVapiSDK();
         
-        if (vapiLoaded && CONFIG.key) {
-            initVapi();
-        } else if (vapiLoaded) {
+        if (VapiClass && CONFIG.key) {
+            initVapi(VapiClass);
+        } else if (VapiClass) {
             log('Add Vapi Public Key in settings');
             setStatus('sVapi', 'Need Key', 'warn');
         }
         
-        // Initialize speech recognition
         initRecognition();
         await checkMic();
         
-        // Start in compact mode
         document.body.classList.add('compact');
         updateUI('idle', 'Ready', `Say <span class="badge">${CONFIG.wake}</span>`);
         
-        // Auto-start listening after delay
         setTimeout(() => { 
-            if (state.rec && !state.calling) { 
-                startListening();
-            }
+            if (state.rec && !state.calling) startListening();
         }, 1500);
     });
 
@@ -305,8 +329,9 @@
         CONFIG.assist = document.getElementById('inAssist').value.trim();
         try { localStorage.setItem('miniConfig', JSON.stringify(CONFIG)); } catch (e) {}
         
-        if (typeof Vapi !== 'undefined' && CONFIG.key && !state.vapiOk) {
-            initVapi();
+        const VapiClass = getVapiClass();
+        if (VapiClass && CONFIG.key && !state.vapiOk) {
+            initVapi(VapiClass);
         }
         
         toast('Saved!', 'success');
@@ -355,11 +380,11 @@
 
         state.rec.onstart = () => {
             state.listening = true;
-            state.abortCount = 0;  // Reset abort counter
+            state.abortCount = 0;
             updateUI('listening');
             updateBtns(true);
             setStatus('sMic', 'Active', 'ok');
-            log('🎤 Listening started');
+            log('🎤 Listening');
         };
 
         state.rec.onresult = (event) => {
@@ -379,7 +404,7 @@
                 const now = Date.now();
                 if (now - state.lastWake > CONFIG.debounce) {
                     state.lastWake = now;
-                    log(`🎯 WAKE WORD: "${lower}"`, 'success');
+                    log(`🎯 WAKE: "${lower}"`, 'success');
                     onWakeDetected();
                 }
             }
@@ -390,98 +415,60 @@
                 setStatus('sMic', 'Blocked', 'err');
                 state.listening = false;
                 updateBtns(false);
-                log('Microphone blocked!', 'error');
-                toast('Allow microphone access', 'error');
+                log('Mic blocked!', 'error');
             } else if (e.error === 'aborted') {
                 state.abortCount++;
-                if (state.abortCount < state.maxAborts) {
-                    // Normal abort, schedule restart with longer delay
-                    scheduleRestart(1000);
-                } else {
-                    // Too many aborts, wait longer
-                    log('Multiple aborts - waiting 5s', 'warn');
-                    scheduleRestart(5000);
-                    state.abortCount = 0;
-                }
+                const delay = state.abortCount >= state.maxAborts ? 5000 : 1000;
+                if (state.abortCount >= state.maxAborts) state.abortCount = 0;
+                scheduleRestart(delay);
             } else if (e.error === 'no-speech') {
-                // Normal - just restart
                 scheduleRestart(500);
             } else {
-                log(`Speech error: ${e.error}`, 'error');
+                log(`Error: ${e.error}`, 'error');
                 scheduleRestart(1000);
             }
         };
 
         state.rec.onend = () => {
-            if (state.listening && !state.calling) {
-                scheduleRestart(500);
-            }
+            if (state.listening && !state.calling) scheduleRestart(500);
         };
         
-        log('Speech recognition ready');
+        log('Speech ready');
     }
 
     function scheduleRestart(delay = 500) {
         if (state.restartTimer) clearTimeout(state.restartTimer);
-        
         state.restartTimer = setTimeout(() => {
             if (state.listening && !state.calling && state.rec) {
-                try { 
-                    state.rec.start();
-                } catch (e) {
-                    if (!e.message.includes('already started')) {
-                        log(`Restart error: ${e.message}`, 'error');
-                    }
-                }
+                try { state.rec.start(); } catch (e) {}
             }
         }, delay);
     }
 
     function startListening() {
-        if (!state.rec) {
-            log('Speech recognition not available', 'error');
-            return;
-        }
-        if (state.calling) {
-            log('Cannot listen during call');
-            return;
-        }
-        
+        if (!state.rec || state.calling) return;
         state.listening = true;
         state.abortCount = 0;
-        
         try {
             state.rec.start();
-            log('Started listening');
         } catch (e) {
-            if (e.message.includes('already started')) {
-                updateUI('listening');
-                updateBtns(true);
-            } else {
-                log(`Start error: ${e.message}`, 'error');
-            }
+            if (!e.message.includes('already started')) log(`Start error: ${e.message}`, 'error');
         }
     }
 
     function stopListening() {
         state.listening = false;
         if (state.restartTimer) clearTimeout(state.restartTimer);
-        
-        try {
-            if (state.rec) state.rec.stop();
-        } catch (e) {}
-        
+        try { if (state.rec) state.rec.stop(); } catch (e) {}
         if (!state.calling) updateUI('idle');
         updateBtns(false);
         updateLiveTranscript('');
     }
 
-    function toggle() {
-        state.listening ? stopListening() : startListening();
-    }
+    function toggle() { state.listening ? stopListening() : startListening(); }
 
     function forceRestart() {
-        log('Force restarting...');
+        log('Restarting...');
         stopListening();
         state.abortCount = 0;
         setTimeout(startListening, 1000);
@@ -491,66 +478,60 @@
     // =====================================================
     // VAPI
     // =====================================================
-    function initVapi() {
-        if (typeof Vapi === 'undefined' || !CONFIG.key) return;
+    function initVapi(VapiClass) {
+        if (!CONFIG.key) return;
         
         try {
-            state.vapi = new Vapi(CONFIG.key);
+            // Handle HTML SDK (vapiSDK.run)
+            if (VapiClass.run && typeof VapiClass.run === 'function') {
+                log('Using HTML SDK style');
+                state.vapiOk = true;
+                state.vapiType = 'html';
+                setStatus('sVapi', 'Ready', 'ok');
+                return;
+            }
+            
+            // Handle class-based SDK
+            state.vapi = new VapiClass(CONFIG.key);
             state.vapiOk = true;
+            state.vapiType = 'class';
             setStatus('sVapi', 'Ready', 'ok');
-            log('✓ Vapi initialized', 'success');
+            log('✓ Vapi ready', 'success');
 
-            state.vapi.on('call-start', () => {
-                state.calling = true;
-                state.sessions++;
-                document.getElementById('sSessions').textContent = state.sessions;
-                updateUI('active', 'Call Active', 'Speak to assistant');
-                log('📞 Call started');
-            });
-
-            state.vapi.on('call-end', () => {
-                log('Call ended');
-                state.calling = false;
-                state.vapi = null;  // Clear the instance
-                updateUI('idle');
-                
-                // Re-initialize Vapi for next call
-                setTimeout(() => {
-                    initVapi();
-                    // Wait before restarting speech recognition
-                    setTimeout(startListening, 2000);
-                }, 1000);
-            });
-
-            state.vapi.on('speech-start', () => {
-                log('🗣️ User speaking');
-            });
-
-            state.vapi.on('speech-end', () => {
-                log('User stopped');
-            });
-
-            state.vapi.on('message', (msg) => {
-                if (msg.type === 'transcript' && msg.transcript) {
-                    log(`[${msg.role}]: ${msg.transcript}`);
-                }
-            });
-
-            state.vapi.on('error', (err) => {
-                log(`Vapi error: ${err?.message || err}`, 'error');
-                state.calling = false;
-                updateUI('idle');
-                setTimeout(() => {
-                    initVapi();
-                    startListening();
-                }, 3000);
-            });
+            setupVapiEvents();
             
         } catch (e) {
-            log(`Vapi init failed: ${e.message}`, 'error');
+            log(`Vapi init error: ${e.message}`, 'error');
             state.vapiOk = false;
             setStatus('sVapi', 'Error', 'err');
         }
+    }
+
+    function setupVapiEvents() {
+        if (!state.vapi) return;
+        
+        state.vapi.on('call-start', () => {
+            state.calling = true;
+            state.sessions++;
+            document.getElementById('sSessions').textContent = state.sessions;
+            updateUI('active', 'Call Active', 'Speak to assistant');
+            log('📞 Call started');
+        });
+
+        state.vapi.on('call-end', () => {
+            log('Call ended');
+            state.calling = false;
+            updateUI('idle');
+            // Wait before restarting
+            setTimeout(startListening, 2000);
+        });
+
+        state.vapi.on('error', (err) => {
+            log(`Vapi error: ${err?.message || err}`, 'error');
+            state.calling = false;
+            updateUI('idle');
+            setTimeout(startListening, 3000);
+        });
     }
 
     function onWakeDetected() {
@@ -558,8 +539,8 @@
         stopListening();
         updateUI('active', '🎯 Wake Detected!', 'Connecting...');
 
-        if (!state.vapiOk || !state.vapi) {
-            toast('Configure Vapi first', 'error');
+        if (!state.vapiOk) {
+            toast('Vapi not loaded - check network', 'error');
             log('Vapi not ready', 'error');
             setTimeout(startListening, 3000);
             return;
@@ -578,8 +559,47 @@
         }
 
         try {
-            log('🚀 Starting Vapi call...');
-            state.vapi.start(CONFIG.assist);
+            log('🚀 Starting call...');
+            
+            if (state.vapiType === 'html') {
+                // HTML SDK style
+                const VapiClass = getVapiClass();
+                state.vapi = VapiClass.run({
+                    apiKey: CONFIG.key,
+                    assistant: CONFIG.assist,
+                    config: { hideButton: true }
+                });
+                
+                if (state.vapi) {
+                    state.calling = true;
+                    state.sessions++;
+                    document.getElementById('sSessions').textContent = state.sessions;
+                    
+                    state.vapi.on('call-start', () => {
+                        log('📞 Connected');
+                        updateUI('active', 'Call Active', 'Speak now');
+                    });
+                    
+                    state.vapi.on('call-end', () => {
+                        state.calling = false;
+                        log('Call ended');
+                        updateUI('idle');
+                        setTimeout(startListening, 2000);
+                    });
+                    
+                    state.vapi.on('error', (e) => {
+                        state.calling = false;
+                        log(`Error: ${e}`, 'error');
+                        updateUI('idle');
+                        setTimeout(startListening, 3000);
+                    });
+                    
+                    state.vapi.start();
+                }
+            } else {
+                // Class SDK style
+                state.vapi.start(CONFIG.assist);
+            }
         } catch (e) {
             log(`Call failed: ${e.message}`, 'error');
             toast('Call failed', 'error');
@@ -588,12 +608,12 @@
     }
 
     function endCall() {
-        if (state.vapi && state.calling) {
+        if (state.vapi) {
             try { state.vapi.stop(); } catch (e) {}
         }
         state.calling = false;
         updateUI('idle');
-        log('Call ended by user');
+        log('Call ended');
     }
 
     // =====================================================
