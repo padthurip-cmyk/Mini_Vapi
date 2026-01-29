@@ -65,8 +65,16 @@
         .input-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
         .input-group input { width: 100%; background: var(--bg3); border: 1px solid var(--border); padding: 12px; color: var(--text); border-radius: 8px; font-family: monospace; font-size: 14px; }
         .input-group input:focus { outline: none; border-color: var(--accent); }
+        .input-group input.filled { border-color: var(--accent); }
         .input-group small { display: block; margin-top: 4px; color: var(--text2); font-size: 11px; }
+        .input-group .status-indicator { display: inline-block; margin-left: 8px; font-size: 12px; }
+        .input-group .status-indicator.ok { color: var(--accent); }
+        .input-group .status-indicator.err { color: var(--danger); }
         .settings-btns { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+        
+        .config-status { background: var(--bg3); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13px; }
+        .config-status.ok { border-left: 3px solid var(--accent); }
+        .config-status.err { border-left: 3px solid var(--danger); }
         
         .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(50px); background: var(--bg2); border: 1px solid var(--border); padding: 14px 24px; border-radius: 10px; opacity: 0; transition: all 0.3s; z-index: 10000; font-size: 14px; }
         .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
@@ -145,20 +153,24 @@
 
         <div class="card">
             <div class="card-title">Configuration</div>
+            
+            <div class="config-status" id="configStatus">
+                ⚠️ Please enter your Vapi Public Key and Assistant ID below
+            </div>
+            
             <div class="input-group">
-                <label>Wake Word</label>
+                <label>Wake Word <span class="status-indicator ok" id="wakeStatus">✓</span></label>
                 <input id="inWake" value="hey mini" placeholder="hey mini">
-                <small>The phrase you say to activate the assistant</small>
             </div>
             <div class="input-group">
-                <label>Vapi Public Key</label>
+                <label>Vapi Public Key <span class="status-indicator" id="keyStatus"></span></label>
                 <input id="inKey" placeholder="pk_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                <small>Find this in your Vapi Dashboard → API Keys</small>
+                <small>Dashboard → Organization Settings → API Keys → Public Key</small>
             </div>
             <div class="input-group">
-                <label>Assistant ID</label>
+                <label>Assistant ID <span class="status-indicator" id="assistStatus"></span></label>
                 <input id="inAssist" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                <small>Find this in your Vapi Dashboard → Assistants</small>
+                <small>Dashboard → Assistants → Select Assistant → Copy ID from URL or details</small>
             </div>
             <div class="settings-btns">
                 <button class="btn primary" onclick="save()">💾 Save Config</button>
@@ -199,24 +211,31 @@
     // Wake word variations
     function getWakeVariations(wake) {
         const base = wake.toLowerCase().trim();
+        const words = base.split(' ');
         const variations = [base];
         
-        if (base.includes('hey')) {
-            variations.push(base.replace('hey', 'hay'));
-            variations.push(base.replace('hey', 'he'));
-            variations.push(base.replace('hey', 'a'));
-        }
-        if (base.includes('mini')) {
-            variations.push(base.replace('mini', 'minnie'));
-            variations.push(base.replace('mini', 'manny'));
-            variations.push(base.replace('mini', 'many'));
-            variations.push(base.replace('mini', 'money'));
-            variations.push(base.replace('mini', 'meaning'));
-            variations.push(base.replace('mini', 'meanie'));
-            variations.push(base.replace('mini', 'midi'));
+        // Add individual word variations
+        const wordVariations = {
+            'hey': ['hay', 'he', 'a', 'they', 'yay'],
+            'mini': ['minnie', 'manny', 'many', 'money', 'meaning', 'meanie', 'midi', 'mimi'],
+            'chef': ['chef', 'jeff', 'cheff']
+        };
+        
+        // Generate variations
+        for (const [original, alts] of Object.entries(wordVariations)) {
+            if (base.includes(original)) {
+                for (const alt of alts) {
+                    variations.push(base.replace(original, alt));
+                }
+            }
         }
         
-        return variations;
+        // Also add just the main word if it's a single word wake
+        if (words.length === 1) {
+            variations.push(words[0]);
+        }
+        
+        return [...new Set(variations)]; // Remove duplicates
     }
 
     // =====================================================
@@ -265,8 +284,34 @@
         }
     }
 
+    function updateConfigStatus() {
+        const statusEl = document.getElementById('configStatus');
+        const keyStatus = document.getElementById('keyStatus');
+        const assistStatus = document.getElementById('assistStatus');
+        
+        const hasKey = CONFIG.key && CONFIG.key.length > 10;
+        const hasAssist = CONFIG.assist && CONFIG.assist.length > 10;
+        
+        keyStatus.textContent = hasKey ? '✓' : '✗';
+        keyStatus.className = 'status-indicator ' + (hasKey ? 'ok' : 'err');
+        
+        assistStatus.textContent = hasAssist ? '✓' : '✗';
+        assistStatus.className = 'status-indicator ' + (hasAssist ? 'ok' : 'err');
+        
+        if (hasKey && hasAssist) {
+            statusEl.innerHTML = `✅ <strong>Ready!</strong> Say "<strong>${CONFIG.wake}</strong>" to start a call`;
+            statusEl.className = 'config-status ok';
+        } else {
+            let missing = [];
+            if (!hasKey) missing.push('Public Key');
+            if (!hasAssist) missing.push('Assistant ID');
+            statusEl.innerHTML = `⚠️ Missing: ${missing.join(', ')}`;
+            statusEl.className = 'config-status err';
+        }
+    }
+
     // =====================================================
-    // VAPI SDK LOADING (Official HTML Script Tag Method)
+    // VAPI SDK LOADING
     // =====================================================
     function loadVapiSDK() {
         return new Promise((resolve) => {
@@ -282,16 +327,15 @@
                 g.async = true;
                 
                 g.onload = function() {
-                    log('SDK script loaded, checking...');
-                    // Wait a bit for the script to initialize
+                    log('SDK script loaded');
                     setTimeout(() => {
                         if (window.vapiSDK) {
-                            log('✓ Vapi SDK ready (vapiSDK)', 'success');
+                            log('✓ Vapi SDK ready', 'success');
                             setStatus('sVapi', 'Ready', 'ok');
                             state.vapiReady = true;
                             resolve(true);
                         } else {
-                            log('vapiSDK not found after load', 'error');
+                            log('vapiSDK not found', 'error');
                             setStatus('sVapi', 'Failed', 'err');
                             resolve(false);
                         }
@@ -299,7 +343,7 @@
                 };
                 
                 g.onerror = function() {
-                    log('SDK script failed to load', 'error');
+                    log('SDK script failed', 'error');
                     setStatus('sVapi', 'Failed', 'err');
                     resolve(false);
                 };
@@ -313,9 +357,10 @@
     // INITIALIZATION
     // =====================================================
     document.addEventListener('DOMContentLoaded', async () => {
-        log('=== Voice Bridge v8 ===');
+        log('=== Voice Bridge v9 ===');
         
         loadConfig();
+        updateConfigStatus();
         
         // Check speech support
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -330,10 +375,10 @@
         // Request mic permission
         try {
             await navigator.mediaDevices.getUserMedia({ audio: true });
-            log('✓ Microphone access granted', 'success');
+            log('✓ Mic access granted', 'success');
             setStatus('sMic', 'Allowed', 'ok');
         } catch (e) {
-            log('⚠️ Microphone permission needed', 'warn');
+            log('⚠️ Mic permission needed', 'warn');
             setStatus('sMic', 'Prompt', 'warn');
         }
         
@@ -347,6 +392,11 @@
                 startListening();
             }
         }, 1500);
+        
+        // Log current config
+        log(`Wake: "${CONFIG.wake}"`);
+        log(`Key: ${CONFIG.key ? CONFIG.key.substring(0, 10) + '...' : 'NOT SET'}`);
+        log(`Assistant: ${CONFIG.assist ? CONFIG.assist.substring(0, 10) + '...' : 'NOT SET'}`);
     });
 
     // =====================================================
@@ -354,12 +404,15 @@
     // =====================================================
     function loadConfig() {
         try {
-            const saved = localStorage.getItem('voiceBridge_v4');
+            const saved = localStorage.getItem('voiceBridge_v5');
             if (saved) {
                 const parsed = JSON.parse(saved);
                 Object.assign(CONFIG, parsed);
+                log('Config loaded from storage');
             }
-        } catch (e) {}
+        } catch (e) {
+            log('No saved config found');
+        }
         
         document.getElementById('inWake').value = CONFIG.wake;
         document.getElementById('inKey').value = CONFIG.key;
@@ -367,25 +420,45 @@
     }
 
     function save() {
-        CONFIG.wake = document.getElementById('inWake').value.toLowerCase().trim() || 'hey mini';
-        CONFIG.key = document.getElementById('inKey').value.trim();
-        CONFIG.assist = document.getElementById('inAssist').value.trim();
+        const newWake = document.getElementById('inWake').value.toLowerCase().trim() || 'hey mini';
+        const newKey = document.getElementById('inKey').value.trim();
+        const newAssist = document.getElementById('inAssist').value.trim();
         
+        // Update config
+        CONFIG.wake = newWake;
+        CONFIG.key = newKey;
+        CONFIG.assist = newAssist;
+        
+        // Log what we're saving
+        log(`Saving config...`);
+        log(`  Wake: "${CONFIG.wake}"`);
+        log(`  Key: ${CONFIG.key ? CONFIG.key.substring(0, 15) + '...' : 'EMPTY!'}`);
+        log(`  Assistant: ${CONFIG.assist ? CONFIG.assist.substring(0, 15) + '...' : 'EMPTY!'}`);
+        
+        // Validate
         if (!CONFIG.key) {
-            toast('⚠️ Enter Vapi Public Key', 'error');
+            toast('⚠️ Please enter Vapi Public Key', 'error');
+            log('ERROR: No Public Key!', 'error');
+            updateConfigStatus();
             return;
         }
         if (!CONFIG.assist) {
-            toast('⚠️ Enter Assistant ID', 'error');
+            toast('⚠️ Please enter Assistant ID', 'error');
+            log('ERROR: No Assistant ID!', 'error');
+            updateConfigStatus();
             return;
         }
         
+        // Save to localStorage
         try { 
-            localStorage.setItem('voiceBridge_v4', JSON.stringify(CONFIG)); 
-        } catch (e) {}
+            localStorage.setItem('voiceBridge_v5', JSON.stringify(CONFIG));
+            log('✓ Saved to localStorage', 'success');
+        } catch (e) {
+            log('Failed to save: ' + e.message, 'error');
+        }
         
+        updateConfigStatus();
         toast('✓ Configuration saved!', 'success');
-        log('Config saved');
         
         if (state.listening) {
             stopListening();
@@ -401,7 +474,7 @@
     function initRecognition() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) {
-            log('Speech Recognition not supported', 'error');
+            log('Speech not supported', 'error');
             return;
         }
         
@@ -431,7 +504,6 @@
                 latestText = result[0].transcript;
                 fullText += latestText;
                 
-                // Check all alternatives
                 for (let j = 0; j < result.length; j++) {
                     const alt = result[j].transcript.toLowerCase();
                     if (checkWakeWord(alt)) return;
@@ -448,7 +520,6 @@
                 state.listening = false;
                 updateBtns(false);
                 log('❌ Mic blocked', 'error');
-                toast('Allow microphone access', 'error');
             } else if (e.error === 'aborted') {
                 state.abortCount++;
                 scheduleRestart(state.abortCount > 3 ? 2000 : 300);
@@ -527,7 +598,7 @@
     }
 
     // =====================================================
-    // VAPI CALL (Using vapiSDK.run method)
+    // VAPI CALL
     // =====================================================
     function onWakeDetected() {
         playSound();
@@ -536,21 +607,29 @@
         updateUI('active', '🎯 Wake Detected!', 'Connecting...');
         setStatus('sCall', 'Connecting...', 'warn');
         
+        // Check SDK
         if (!state.vapiReady || !window.vapiSDK) {
             toast('⚠️ Vapi SDK not ready', 'error');
-            log('Vapi SDK not available', 'error');
+            log('SDK not ready', 'error');
             setTimeout(startListening, 2000);
             return;
         }
         
-        if (!CONFIG.key) {
-            toast('⚠️ Enter Vapi Public Key', 'error');
+        // Check config - BE EXPLICIT
+        log(`Checking config before call...`);
+        log(`  CONFIG.key = "${CONFIG.key}"`);
+        log(`  CONFIG.assist = "${CONFIG.assist}"`);
+        
+        if (!CONFIG.key || CONFIG.key.length < 10) {
+            toast('⚠️ Enter Vapi Public Key first!', 'error');
+            log('ERROR: Public Key missing or too short!', 'error');
             setTimeout(startListening, 2000);
             return;
         }
         
-        if (!CONFIG.assist) {
-            toast('⚠️ Enter Assistant ID', 'error');
+        if (!CONFIG.assist || CONFIG.assist.length < 10) {
+            toast('⚠️ Enter Assistant ID first!', 'error');
+            log('ERROR: Assistant ID missing or too short!', 'error');
             setTimeout(startListening, 2000);
             return;
         }
@@ -560,81 +639,84 @@
 
     function startCall() {
         try {
-            log('🚀 Starting call with vapiSDK.run()...');
+            log('🚀 Starting Vapi call...');
+            log(`  Using API Key: ${CONFIG.key.substring(0, 15)}...`);
+            log(`  Using Assistant: ${CONFIG.assist}`);
             
-            // Use the official vapiSDK.run method
+            // Create the Vapi instance with the assistant ID
             state.vapi = window.vapiSDK.run({
                 apiKey: CONFIG.key,
-                assistant: CONFIG.assist,  // This is the Assistant ID
+                assistant: CONFIG.assist,
                 config: {
-                    hideButton: true,  // Hide the default Vapi button
+                    hideButton: true,
                     position: "bottom-right"
                 }
             });
             
-            if (state.vapi) {
-                log('Vapi instance created, setting up events...');
-                
-                state.vapi.on('call-start', () => {
-                    state.calling = true;
-                    state.sessions++;
-                    document.getElementById('sSessions').textContent = state.sessions;
-                    document.getElementById('callBanner').classList.add('show');
-                    setStatus('sCall', 'Connected', 'ok');
-                    updateUI('active', '📞 Call Active', 'Speak now');
-                    log('📞 Connected!', 'success');
-                    toast('✓ Connected!', 'success');
-                });
-                
-                state.vapi.on('call-end', () => {
-                    log('Call ended');
-                    state.calling = false;
-                    document.getElementById('callBanner').classList.remove('show');
-                    setStatus('sCall', 'Ended', 'warn');
-                    updateUI('idle');
-                    updateLiveTranscript('');
-                    
-                    setTimeout(() => {
-                        setStatus('sCall', 'Idle', '');
-                        startListening();
-                    }, 2000);
-                });
-                
-                state.vapi.on('speech-start', () => log('🗣️ Speaking...'));
-                state.vapi.on('speech-end', () => log('Listening...'));
-                
-                state.vapi.on('message', (msg) => {
-                    if (msg.type === 'transcript' && msg.transcript) {
-                        const icon = msg.role === 'assistant' ? '🤖' : '👤';
-                        log(`${icon}: ${msg.transcript}`);
-                    }
-                });
-                
-                state.vapi.on('error', (err) => {
-                    const errMsg = err?.message || err?.error?.message || JSON.stringify(err);
-                    log(`❌ Error: ${errMsg}`, 'error');
-                    
-                    state.calling = false;
-                    document.getElementById('callBanner').classList.remove('show');
-                    setStatus('sCall', 'Error', 'err');
-                    updateUI('idle');
-                    toast('Call error', 'error');
-                    
-                    setTimeout(startListening, 3000);
-                });
-                
-                // Start the call
-                log('Calling vapi.start()...');
-                state.vapi.start();
-                
-            } else {
+            if (!state.vapi) {
                 log('Failed to create Vapi instance', 'error');
                 toast('Failed to create call', 'error');
                 setTimeout(startListening, 3000);
+                return;
             }
             
+            log('Vapi instance created');
+            
+            // Set up events
+            state.vapi.on('call-start', () => {
+                state.calling = true;
+                state.sessions++;
+                document.getElementById('sSessions').textContent = state.sessions;
+                document.getElementById('callBanner').classList.add('show');
+                setStatus('sCall', 'Connected', 'ok');
+                updateUI('active', '📞 Call Active', 'Speak now');
+                log('📞 Connected!', 'success');
+                toast('✓ Connected!', 'success');
+            });
+            
+            state.vapi.on('call-end', () => {
+                log('Call ended');
+                state.calling = false;
+                document.getElementById('callBanner').classList.remove('show');
+                setStatus('sCall', 'Ended', 'warn');
+                updateUI('idle');
+                updateLiveTranscript('');
+                
+                setTimeout(() => {
+                    setStatus('sCall', 'Idle', '');
+                    startListening();
+                }, 2000);
+            });
+            
+            state.vapi.on('speech-start', () => log('🗣️ Speaking...'));
+            state.vapi.on('speech-end', () => log('Listening...'));
+            
+            state.vapi.on('message', (msg) => {
+                if (msg.type === 'transcript' && msg.transcript) {
+                    const icon = msg.role === 'assistant' ? '🤖' : '👤';
+                    log(`${icon}: ${msg.transcript}`);
+                }
+            });
+            
+            state.vapi.on('error', (err) => {
+                const errMsg = err?.message || err?.error?.message || JSON.stringify(err);
+                log(`❌ Vapi Error: ${errMsg}`, 'error');
+                
+                state.calling = false;
+                document.getElementById('callBanner').classList.remove('show');
+                setStatus('sCall', 'Error', 'err');
+                updateUI('idle');
+                toast('Call error: ' + errMsg, 'error');
+                
+                setTimeout(startListening, 3000);
+            });
+            
+            // Start the call
+            log('Calling vapi.start()...');
+            state.vapi.start();
+            
         } catch (e) {
-            log(`❌ Call error: ${e.message}`, 'error');
+            log(`❌ Exception: ${e.message}`, 'error');
             toast('Call failed: ' + e.message, 'error');
             setTimeout(startListening, 3000);
         }
@@ -645,10 +727,20 @@
             toast('Call already active', 'warn');
             return;
         }
+        
+        // Force read from input fields
+        CONFIG.key = document.getElementById('inKey').value.trim();
+        CONFIG.assist = document.getElementById('inAssist').value.trim();
+        
+        log('Manual call with:');
+        log(`  Key: ${CONFIG.key ? CONFIG.key.substring(0, 15) + '...' : 'EMPTY'}`);
+        log(`  Assist: ${CONFIG.assist || 'EMPTY'}`);
+        
         if (!CONFIG.key || !CONFIG.assist) {
-            toast('⚠️ Configure Vapi first', 'error');
+            toast('⚠️ Enter Key and Assistant ID first', 'error');
             return;
         }
+        
         onWakeDetected();
     }
 
